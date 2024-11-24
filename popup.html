@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="header">
+        <h3>Word Blocker</h3>
+        <button id="toggleExtension" class="toggle-btn">ON</button>
+    </div>
+
+    <div class="tabs">
+        <button class="tab active" data-tab="words">Words</button>
+        <button class="tab" data-tab="stats">Statistics</button>
+    </div>
+
+    <div id="words" class="tab-content active">
+        <div id="wordList" class="word-list"></div>
+        
+        <div class="input-group">
+            <input type="text" id="newWord" placeholder="Enter word to block">
+            <button id="addWord">Add</button>
+        </div>
+        
+        <div id="status" class="status"></div>
+    </div>
+
+    <div id="stats" class="tab-content">
+        <div id="totalBlocked"></div>
+        <div id="timeSaved"></div>
+        <div id="wordStats"></div>
+        <div id="siteStats"></div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>
