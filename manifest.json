@@ -23,11 +23,11 @@
     {
       "matches": ["*://*.reddit.com/*"],
       "css": ["reddit-content.css"],
-      "js": ["content.js"]
+      "js": ["dist/content.js"]
     },
     {
       "matches": ["*://*.youtube.com/*"],
-      "js": ["content.js"]
+      "js": ["dist/content.js"]
     }
   ]
 }
