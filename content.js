@@ -11,20 +11,77 @@ let sessionStats = {
     timeStarted: Date.now()
 };
 
+// Broadcast channel for tab communication
+const stateChannel = new BroadcastChannel('detrumper-state-sync');
+
+// State types that can be synced
+const STATE_TYPES = {
+    WORDS_UPDATED: 'WORDS_UPDATED',
+    TOGGLE_STATE: 'TOGGLE_STATE',
+    REQUEST_STATE: 'REQUEST_STATE',
+    PROVIDE_STATE: 'PROVIDE_STATE'
+};
+
+// Listen for state changes from other tabs
+stateChannel.onmessage = async (event) => {
+    const { type, payload, tabId } = event.data;
+    
+    // Don't process our own messages
+    if (tabId === chrome.runtime.id) return;
+
+    switch (type) {
+        case STATE_TYPES.WORDS_UPDATED:
+            wordsToRemove = payload.words;
+            if (isEnabled) {
+                processMutations([]);
+            }
+            break;
+
+        case STATE_TYPES.TOGGLE_STATE:
+            isEnabled = payload.isEnabled;
+            if (!isEnabled) {
+                resetSessionStats();
+            } else {
+                processMutations([]);
+            }
+            break;
+
+        case STATE_TYPES.REQUEST_STATE:
+            // Respond with current state
+            stateChannel.postMessage({
+                type: STATE_TYPES.PROVIDE_STATE,
+                payload: {
+                    words: wordsToRemove,
+                    isEnabled: isEnabled
+                },
+                tabId: chrome.runtime.id
+            });
+            break;
+    }
+};
+
 async function initializeExtension() {
     try {
-        // Initialize extension state first
-        const { isEnabled } = await chrome.storage.local.get(['isEnabled']);
+        const state = await chrome.storage.local.get(['isEnabled', 'blockedWords', 'blockStats']);
+        
+        // Request current state from other tabs
+        stateChannel.postMessage({
+            type: STATE_TYPES.REQUEST_STATE,
+            tabId: chrome.runtime.id
+        });
+
+        // Wait briefly for any responses
+        await new Promise(resolve => setTimeout(resolve, 100));
+
         const globalState = {
-            isEnabled: isEnabled !== undefined ? isEnabled : true,
-            wordsToRemove: DEFAULT_WORDS,
+            isEnabled: state.isEnabled !== undefined ? state.isEnabled : true,
+            wordsToRemove: state.blockedWords || DEFAULT_WORDS,
             removedCount: 0,
             lastCheck: 0
         };
 
-        // Initialize statistics storage
-        const { blockStats } = await chrome.storage.local.get(['blockStats']);
-        if (!blockStats) {
+        // Initialize stats if needed
+        if (!state.blockStats) {
             await chrome.storage.local.set({
                 blockStats: {
                     totalBlocked: 0,
@@ -35,7 +92,7 @@ async function initializeExtension() {
             });
         }
 
-        // Initialize session statistics
+        // Initialize session stats
         const sessionStats = {
             totalBlocked: 0,
             siteStats: {},
@@ -44,11 +101,6 @@ async function initializeExtension() {
         };
         await chrome.storage.session.set({ sessionStats });
 
-        // Get blocked words list
-        const { blockedWords } = await chrome.storage.local.get(['blockedWords']);
-        globalState.wordsToRemove = blockedWords || DEFAULT_WORDS;
-
-        // Reset session if extension is disabled
         if (!globalState.isEnabled) {
             await resetSessionStats();
         }
@@ -56,7 +108,6 @@ async function initializeExtension() {
         return globalState;
     } catch (error) {
         console.error('Initialization failed:', error);
-        // Return default state as fallback
         return {
             isEnabled: true,
             wordsToRemove: DEFAULT_WORDS,
@@ -237,6 +288,16 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
         
         chrome.storage.local.get(['blockedWords'], function(result) {
             wordsToRemove = result.blockedWords || DEFAULT_WORDS;
+            
+            // Broadcast state change to other tabs
+            stateChannel.postMessage({
+                type: STATE_TYPES.WORDS_UPDATED,
+                payload: {
+                    words: wordsToRemove
+                },
+                tabId: chrome.runtime.id
+            });
+
             if (isEnabled) {
                 processMutations([]);
             }
@@ -244,7 +305,6 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     }
 });
 
-// Start the extension
 async function startExtension() {
     const state = await initializeExtension();
     
@@ -288,4 +348,5 @@ window.addEventListener('unload', () => {
     if (observer) {
         observer.disconnect();
     }
+    stateChannel.close();
 });
