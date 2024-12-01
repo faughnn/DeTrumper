@@ -1,12 +1,13 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div class="header">
         <h3>Word Blocker</h3>
-        <button id="toggleExtension" class="toggle-btn">ON</button>
+        <button id="toggleExtension" class="toggle-btn active">ON</button>
     </div>
 
     <div class="tabs">
@@ -16,12 +17,10 @@
 
     <div id="words" class="tab-content active">
         <div id="wordList" class="word-list"></div>
-        
         <div class="input-group">
             <input type="text" id="newWord" placeholder="Enter word to block">
             <button id="addWord">Add</button>
         </div>
-        
         <div id="status" class="status"></div>
     </div>
 
@@ -32,6 +31,6 @@
         <div id="siteStats"></div>
     </div>
 
-    <script src="popup.js"></script>
+    <script src="popup-bundle.js"></script>
 </body>
 </html>

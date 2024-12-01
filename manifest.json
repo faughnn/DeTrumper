@@ -23,11 +23,13 @@
     {
       "matches": ["*://*.reddit.com/*"],
       "css": ["reddit-content.css"],
-      "js": ["content.js"]
+      "js": ["content-bundle.js"],
+      "type": "module"
     },
     {
       "matches": ["*://*.youtube.com/*"],
-      "js": ["content.js"]
+      "js": ["content-bundle.js"],
+      "type": "module"
     }
   ]
 }
