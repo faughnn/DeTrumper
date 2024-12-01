@@ -1,4 +1,5 @@
-import { DEFAULT_WORDS, STATE_TYPES } from './config.js';
+import { DEFAULT_WORDS } from './config.js';
+import { STATE_TYPES } from './config.js';
 
 class StateManager {
     constructor() {
@@ -7,6 +8,8 @@ class StateManager {
         this.wordsToRemove = DEFAULT_WORDS;
         this.removedCount = 0;
         this.lastCheck = 0;
+        // Make the instance globally available
+        window.stateManager = this;
     }
 
     async initialize() {
@@ -17,12 +20,15 @@ class StateManager {
                 await chrome.storage.local.set({ blockedWords: DEFAULT_WORDS });
             }
 
+            this.wordsToRemove = state.blockedWords || DEFAULT_WORDS;
+            this.isEnabled = state.isEnabled !== undefined ? state.isEnabled : true;
+
             this.broadcastStateRequest();
             await this.waitForStateResponses();
 
             return {
-                isEnabled: state.isEnabled !== undefined ? state.isEnabled : true,
-                wordsToRemove: state.blockedWords || DEFAULT_WORDS,
+                isEnabled: this.isEnabled,
+                wordsToRemove: this.wordsToRemove,
                 removedCount: 0,
                 lastCheck: 0
             };
@@ -94,6 +100,7 @@ class StateManager {
 
     cleanup() {
         this.stateChannel.close();
+        delete window.stateManager;
     }
 }
 

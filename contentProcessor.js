@@ -1,6 +1,7 @@
 import { ANIMATION_DURATION, MUTATION_CHECK_INTERVAL } from './config.js';
 import { siteHandlers } from './siteHandlers.js';
 import { statsManager } from './statsManager.js';
+import { sharedState } from './sharedState.js';
 
 class ContentProcessor {
     constructor() {
@@ -9,7 +10,7 @@ class ContentProcessor {
     }
 
     findMatchingWord(text) {
-        return stateManager.wordsToRemove.find(word => 
+        return sharedState.wordsToRemove.find(word => 
             text.toLowerCase().includes(word.toLowerCase())
         );
     }
@@ -30,32 +31,41 @@ class ContentProcessor {
         }
     }
 
-    process() {
-        if (!stateManager.isEnabled) return;
+    async process() {
+        try {
+            const state = await sharedState.getState();
+            if (!state.isEnabled) return;
 
-        const now = Date.now();
-        if (now - this.lastCheck < MUTATION_CHECK_INTERVAL) return;
-        this.lastCheck = now;
+            const now = Date.now();
+            if (now - this.lastCheck < MUTATION_CHECK_INTERVAL) return;
+            this.lastCheck = now;
 
-        const siteType = siteHandlers.getSiteType();
-        if (siteType === 'other') return;
-
-        siteHandlers.handleLayoutAdjustment(siteType);
-
-        const elements = siteHandlers.getElementsToCheck(siteType);
-
-        elements.forEach(element => {
-            if (element.hasAttribute('data-checked')) return;
+            const siteType = siteHandlers.getSiteType();
+            console.log('Site type:', siteType);
             
-            const text = element.textContent.toLowerCase();
-            if (stateManager.wordsToRemove.some(word => text.includes(word.toLowerCase()))) {
-                const target = siteHandlers.findBestElementToRemove(element, siteType);
-                if (target && target !== document.body) {
-                    this.removeElement(target, siteType, text);
+            if (siteType === 'other') return;
+
+            siteHandlers.handleLayoutAdjustment(siteType);
+
+            const elements = siteHandlers.getElementsToCheck(siteType);
+            console.log('Found elements:', elements.length);
+
+            elements.forEach(element => {
+                if (element.hasAttribute('data-checked')) return;
+                
+                const text = element.textContent.toLowerCase();
+                if (state.wordsToRemove.some(word => text.includes(word.toLowerCase()))) {
+                    console.log('Found matching word in:', text.slice(0, 100));
+                    const target = siteHandlers.findBestElementToRemove(element, siteType);
+                    if (target && target !== document.body) {
+                        this.removeElement(target, siteType, text);
+                    }
                 }
-            }
-            element.setAttribute('data-checked', 'true');
-        });
+                element.setAttribute('data-checked', 'true');
+            });
+        } catch (error) {
+            console.error('Error in process:', error);
+        }
     }
 
     removeElement(element, siteType, text) {

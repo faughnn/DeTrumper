@@ -1,15 +1,13 @@
+import { sharedState } from './sharedState.js';
+
 class StatsManager {
     constructor() {
-        this.sessionStats = {
-            totalBlocked: 0,
-            siteStats: {},
-            wordStats: {},
-            timeStarted: Date.now()
-        };
+        this.sessionStats = this.getInitialStats();
     }
 
     async updateStats(matchedWord, siteType) {
-        if (!stateManager.isEnabled) return;
+        const state = await sharedState.getState();
+        if (!state.isEnabled) return;
         
         try {
             const result = await chrome.storage.local.get(['blockStats']);
@@ -20,7 +18,6 @@ class StatsManager {
             stats.wordStats[matchedWord] = (stats.wordStats[matchedWord] || 0) + 1;
 
             await chrome.storage.local.set({ blockStats: stats });
-
             this.updateSessionStats(matchedWord, siteType);
         } catch (error) {
             console.error('Failed to update stats:', error);

@@ -27,6 +27,8 @@
             this.wordsToRemove = DEFAULT_WORDS$1;
             this.removedCount = 0;
             this.lastCheck = 0;
+            // Make the instance globally available
+            window.stateManager = this;
         }
 
         async initialize() {
@@ -37,12 +39,15 @@
                     await chrome.storage.local.set({ blockedWords: DEFAULT_WORDS$1 });
                 }
 
+                this.wordsToRemove = state.blockedWords || DEFAULT_WORDS$1;
+                this.isEnabled = state.isEnabled !== undefined ? state.isEnabled : true;
+
                 this.broadcastStateRequest();
                 await this.waitForStateResponses();
 
                 return {
-                    isEnabled: state.isEnabled !== undefined ? state.isEnabled : true,
-                    wordsToRemove: state.blockedWords || DEFAULT_WORDS$1,
+                    isEnabled: this.isEnabled,
+                    wordsToRemove: this.wordsToRemove,
                     removedCount: 0,
                     lastCheck: 0
                 };
@@ -114,10 +119,11 @@
 
         cleanup() {
             this.stateChannel.close();
+            delete window.stateManager;
         }
     }
 
-    const stateManager$1 = new StateManager();
+    const stateManager = new StateManager();
 
     class SiteHandlers {
         getSiteType() {
@@ -195,18 +201,38 @@
 
     const siteHandlers = new SiteHandlers();
 
-    class StatsManager {
+    class SharedState {
         constructor() {
-            this.sessionStats = {
-                totalBlocked: 0,
-                siteStats: {},
-                wordStats: {},
-                timeStarted: Date.now()
+            this.isEnabled = true;
+            this.wordsToRemove = DEFAULT_WORDS$1;
+        }
+
+        async getState() {
+            const result = await chrome.storage.local.get(['isEnabled', 'blockedWords']);
+            return {
+                isEnabled: result.isEnabled !== undefined ? result.isEnabled : true,
+                wordsToRemove: result.blockedWords || DEFAULT_WORDS$1
             };
         }
 
+        async setState(state) {
+            await chrome.storage.local.set({
+                isEnabled: state.isEnabled,
+                blockedWords: state.wordsToRemove
+            });
+        }
+    }
+
+    const sharedState = new SharedState();
+
+    class StatsManager {
+        constructor() {
+            this.sessionStats = this.getInitialStats();
+        }
+
         async updateStats(matchedWord, siteType) {
-            if (!stateManager.isEnabled) return;
+            const state = await sharedState.getState();
+            if (!state.isEnabled) return;
             
             try {
                 const result = await chrome.storage.local.get(['blockStats']);
@@ -217,7 +243,6 @@
                 stats.wordStats[matchedWord] = (stats.wordStats[matchedWord] || 0) + 1;
 
                 await chrome.storage.local.set({ blockStats: stats });
-
                 this.updateSessionStats(matchedWord, siteType);
             } catch (error) {
                 console.error('Failed to update stats:', error);
@@ -256,7 +281,7 @@
         }
 
         findMatchingWord(text) {
-            return stateManager.wordsToRemove.find(word => 
+            return sharedState.wordsToRemove.find(word => 
                 text.toLowerCase().includes(word.toLowerCase())
             );
         }
@@ -277,32 +302,41 @@
             }
         }
 
-        process() {
-            if (!stateManager.isEnabled) return;
+        async process() {
+            try {
+                const state = await sharedState.getState();
+                if (!state.isEnabled) return;
 
-            const now = Date.now();
-            if (now - this.lastCheck < MUTATION_CHECK_INTERVAL) return;
-            this.lastCheck = now;
+                const now = Date.now();
+                if (now - this.lastCheck < MUTATION_CHECK_INTERVAL) return;
+                this.lastCheck = now;
 
-            const siteType = siteHandlers.getSiteType();
-            if (siteType === 'other') return;
-
-            siteHandlers.handleLayoutAdjustment(siteType);
-
-            const elements = siteHandlers.getElementsToCheck(siteType);
-
-            elements.forEach(element => {
-                if (element.hasAttribute('data-checked')) return;
+                const siteType = siteHandlers.getSiteType();
+                console.log('Site type:', siteType);
                 
-                const text = element.textContent.toLowerCase();
-                if (stateManager.wordsToRemove.some(word => text.includes(word.toLowerCase()))) {
-                    const target = siteHandlers.findBestElementToRemove(element, siteType);
-                    if (target && target !== document.body) {
-                        this.removeElement(target, siteType, text);
+                if (siteType === 'other') return;
+
+                siteHandlers.handleLayoutAdjustment(siteType);
+
+                const elements = siteHandlers.getElementsToCheck(siteType);
+                console.log('Found elements:', elements.length);
+
+                elements.forEach(element => {
+                    if (element.hasAttribute('data-checked')) return;
+                    
+                    const text = element.textContent.toLowerCase();
+                    if (state.wordsToRemove.some(word => text.includes(word.toLowerCase()))) {
+                        console.log('Found matching word in:', text.slice(0, 100));
+                        const target = siteHandlers.findBestElementToRemove(element, siteType);
+                        if (target && target !== document.body) {
+                            this.removeElement(target, siteType, text);
+                        }
                     }
-                }
-                element.setAttribute('data-checked', 'true');
-            });
+                    element.setAttribute('data-checked', 'true');
+                });
+            } catch (error) {
+                console.error('Error in process:', error);
+            }
         }
 
         removeElement(element, siteType, text) {
@@ -349,8 +383,8 @@
     const observer = new Observer();
 
     async function startExtension() {
-        await stateManager$1.initialize();
-        stateManager$1.setupMessageListeners(contentProcessor);
+        await stateManager.initialize();
+        stateManager.setupMessageListeners(contentProcessor);
         
         if (document.body) {
             console.log('✨ DeTrumper: Starting up on ' + siteHandlers.getSiteType());
@@ -390,30 +424,30 @@
     // Cleanup
     window.addEventListener('unload', () => {
         observer.cleanup();
-        stateManager$1.cleanup();
+        stateManager.cleanup();
     });
 
     // Message handling
     chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
         if (request.action === "updateWords") {
-            stateManager$1.isEnabled = request.isEnabled !== undefined ? request.isEnabled : true;
+            stateManager.isEnabled = request.isEnabled !== undefined ? request.isEnabled : true;
             
-            if (!stateManager$1.isEnabled) {
+            if (!stateManager.isEnabled) {
                 statsManager.resetSessionStats();
             }
             
             chrome.storage.local.get(['blockedWords'], function(result) {
-                stateManager$1.wordsToRemove = result.blockedWords || DEFAULT_WORDS;
+                stateManager.wordsToRemove = result.blockedWords || DEFAULT_WORDS;
                 
-                stateManager$1.stateChannel.postMessage({
+                stateManager.stateChannel.postMessage({
                     type: STATE_TYPES.WORDS_UPDATED,
                     payload: {
-                        words: stateManager$1.wordsToRemove
+                        words: stateManager.wordsToRemove
                     },
                     tabId: chrome.runtime.id
                 });
 
-                if (stateManager$1.isEnabled) {
+                if (stateManager.isEnabled) {
                     contentProcessor.process();
                 }
             });

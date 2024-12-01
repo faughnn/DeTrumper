@@ -135,18 +135,38 @@
 
     const wordManager = new WordManager();
 
-    class StatsManager {
+    class SharedState {
         constructor() {
-            this.sessionStats = {
-                totalBlocked: 0,
-                siteStats: {},
-                wordStats: {},
-                timeStarted: Date.now()
+            this.isEnabled = true;
+            this.wordsToRemove = DEFAULT_WORDS;
+        }
+
+        async getState() {
+            const result = await chrome.storage.local.get(['isEnabled', 'blockedWords']);
+            return {
+                isEnabled: result.isEnabled !== undefined ? result.isEnabled : true,
+                wordsToRemove: result.blockedWords || DEFAULT_WORDS
             };
         }
 
+        async setState(state) {
+            await chrome.storage.local.set({
+                isEnabled: state.isEnabled,
+                blockedWords: state.wordsToRemove
+            });
+        }
+    }
+
+    const sharedState = new SharedState();
+
+    class StatsManager {
+        constructor() {
+            this.sessionStats = this.getInitialStats();
+        }
+
         async updateStats(matchedWord, siteType) {
-            if (!stateManager.isEnabled) return;
+            const state = await sharedState.getState();
+            if (!state.isEnabled) return;
             
             try {
                 const result = await chrome.storage.local.get(['blockStats']);
@@ -157,7 +177,6 @@
                 stats.wordStats[matchedWord] = (stats.wordStats[matchedWord] || 0) + 1;
 
                 await chrome.storage.local.set({ blockStats: stats });
-
                 this.updateSessionStats(matchedWord, siteType);
             } catch (error) {
                 console.error('Failed to update stats:', error);
