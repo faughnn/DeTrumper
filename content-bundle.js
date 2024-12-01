@@ -125,6 +125,34 @@
 
     const stateManager = new StateManager();
 
+    class Observer {
+        constructor(contentProcessor) {
+            this.observer = null;
+            this.contentProcessor = contentProcessor;
+        }
+
+        setup() {
+            this.observer = new MutationObserver((mutations) => {
+                requestAnimationFrame(() => this.contentProcessor.process());
+            });
+
+            this.observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+
+            this.contentProcessor.process();
+            
+            return this.observer;
+        }
+
+        cleanup() {
+            if (this.observer) {
+                this.observer.disconnect();
+            }
+        }
+    }
+
     class SiteHandlers {
         getSiteType() {
             if (window.location.hostname.includes('reddit.com')) return SITE_TYPES.REDDIT;
@@ -231,19 +259,29 @@
         }
 
         async updateStats(matchedWord, siteType) {
+            console.log('Updating stats for:', matchedWord, 'on site:', siteType);
+            
             const state = await sharedState.getState();
-            if (!state.isEnabled) return;
+            if (!state.isEnabled) {
+                console.log('Stats update skipped - extension disabled');
+                return;
+            }
             
             try {
                 const result = await chrome.storage.local.get(['blockStats']);
+                console.log('Current stored stats:', result.blockStats);
+                
                 let stats = result.blockStats || this.getInitialStats();
 
                 stats.totalBlocked += 1;
                 stats.siteStats[siteType] = (stats.siteStats[siteType] || 0) + 1;
                 stats.wordStats[matchedWord] = (stats.wordStats[matchedWord] || 0) + 1;
 
+                console.log('Saving updated stats:', stats);
                 await chrome.storage.local.set({ blockStats: stats });
+                
                 this.updateSessionStats(matchedWord, siteType);
+                console.log('Session stats updated:', this.sessionStats);
             } catch (error) {
                 console.error('Failed to update stats:', error);
             }
@@ -281,7 +319,7 @@
         }
 
         findMatchingWord(text) {
-            return sharedState.wordsToRemove.find(word => 
+            return stateManager.wordsToRemove.find(word => 
                 text.toLowerCase().includes(word.toLowerCase())
             );
         }
@@ -298,14 +336,14 @@
             });
 
             if (matchedWord) {
+                console.log('Calling updateStats with:', matchedWord, siteType);
                 statsManager$1.updateStats(matchedWord, siteType);
             }
         }
 
         async process() {
             try {
-                const state = await sharedState.getState();
-                if (!state.isEnabled) return;
+                if (!stateManager.isEnabled) return;
 
                 const now = Date.now();
                 if (now - this.lastCheck < MUTATION_CHECK_INTERVAL) return;
@@ -325,7 +363,7 @@
                     if (element.hasAttribute('data-checked')) return;
                     
                     const text = element.textContent.toLowerCase();
-                    if (state.wordsToRemove.some(word => text.includes(word.toLowerCase()))) {
+                    if (stateManager.wordsToRemove.some(word => text.includes(word.toLowerCase()))) {
                         console.log('Found matching word in:', text.slice(0, 100));
                         const target = siteHandlers.findBestElementToRemove(element, siteType);
                         if (target && target !== document.body) {
@@ -351,57 +389,66 @@
         }
     }
 
-    const contentProcessor = new ContentProcessor();
+    let initialized = false;
+    let observer = null;
+    let contentProcessor = null;
 
-    class Observer {
-        constructor() {
-            this.observer = null;
-        }
+    async function startExtension() {
+        try {
+            // Check if chrome.runtime is still available
+            if (!chrome.runtime || !chrome.runtime.id) {
+                console.log('Extension context invalidated, reloading page...');
+                window.location.reload();
+                return;
+            }
 
-        setup() {
-            this.observer = new MutationObserver((mutations) => {
-                requestAnimationFrame(() => contentProcessor.process());
-            });
+            if (initialized) return;
+            initialized = true;
 
-            this.observer.observe(document.body, {
-                childList: true,
-                subtree: true
-            });
-
-            contentProcessor.process();
+            const state = await stateManager.initialize();
+            contentProcessor = new ContentProcessor();
+            observer = new Observer(contentProcessor);
             
-            return this.observer;
-        }
+            stateManager.setupMessageListeners(contentProcessor);
+            
+            if (document.body) {
+                console.log('✨ DeTrumper: Starting up on ' + siteHandlers.getSiteType());
+                observer.setup();
+            } else {
+                document.addEventListener('DOMContentLoaded', () => {
+                    console.log('✨ DeTrumper: Starting up on ' + siteHandlers.getSiteType());
+                    observer.setup();
+                });
+            }
 
-        cleanup() {
-            if (this.observer) {
-                this.observer.disconnect();
+            handleYouTubeInit(contentProcessor);
+
+            // Add runtime disconnect listener
+            chrome.runtime.onConnect.addListener(function(port) {
+                port.onDisconnect.addListener(function() {
+                    if (chrome.runtime.lastError || !chrome.runtime.id) {
+                        initialized = false;
+                        cleanup();
+                        window.location.reload();
+                    }
+                });
+            });
+
+        } catch (error) {
+            console.error('Failed to start extension:', error);
+            if (error.message.includes('Extension context invalidated')) {
+                window.location.reload();
             }
         }
     }
 
-    const observer = new Observer();
-
-    async function startExtension() {
-        await stateManager.initialize();
-        stateManager.setupMessageListeners(contentProcessor);
-        
-        if (document.body) {
-            console.log('✨ DeTrumper: Starting up on ' + siteHandlers.getSiteType());
-            observer.setup();
-        } else {
-            document.addEventListener('DOMContentLoaded', () => {
-                console.log('✨ DeTrumper: Starting up on ' + siteHandlers.getSiteType());
-                observer.setup();
-            });
-        }
-
-        handleYouTubeInit();
-    }
-
-    function handleYouTubeInit() {
+    function handleYouTubeInit(contentProcessor) {
         if (siteHandlers.getSiteType() === 'youtube') {
             let loadCheckInterval = setInterval(() => {
+                if (!chrome.runtime.id) {
+                    clearInterval(loadCheckInterval);
+                    return;
+                }
                 if (document.querySelector('ytd-app')) {
                     contentProcessor.process();
                     clearInterval(loadCheckInterval);
@@ -416,19 +463,34 @@
         }
     }
 
+    function cleanup() {
+        if (observer) {
+            observer.cleanup();
+        }
+        if (stateManager) {
+            stateManager.cleanup();
+        }
+    }
+
     // Initialize
     startExtension().catch(error => {
         console.error('Failed to start extension:', error);
+        if (error.message.includes('Extension context invalidated')) {
+            window.location.reload();
+        }
     });
 
     // Cleanup
-    window.addEventListener('unload', () => {
-        observer.cleanup();
-        stateManager.cleanup();
-    });
+    window.addEventListener('unload', cleanup);
 
     // Message handling
     chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+        // Check if extension context is still valid
+        if (!chrome.runtime.id) {
+            window.location.reload();
+            return;
+        }
+
         if (request.action === "updateWords") {
             stateManager.isEnabled = request.isEnabled !== undefined ? request.isEnabled : true;
             
@@ -447,11 +509,19 @@
                     tabId: chrome.runtime.id
                 });
 
-                if (stateManager.isEnabled) {
+                if (stateManager.isEnabled && contentProcessor) {
                     contentProcessor.process();
                 }
             });
         }
     });
+
+    // Add a context check interval
+    setInterval(() => {
+        if (!chrome.runtime.id) {
+            cleanup();
+            window.location.reload();
+        }
+    }, 1000);
 
 })();

@@ -1,16 +1,16 @@
 import { ANIMATION_DURATION, MUTATION_CHECK_INTERVAL } from './config.js';
 import { siteHandlers } from './siteHandlers.js';
 import { statsManager } from './statsManager.js';
-import { sharedState } from './sharedState.js';
+import { stateManager } from './stateManager.js';
 
-class ContentProcessor {
+export class ContentProcessor {
     constructor() {
         this.removedCount = 0;
         this.lastCheck = 0;
     }
 
     findMatchingWord(text) {
-        return sharedState.wordsToRemove.find(word => 
+        return stateManager.wordsToRemove.find(word => 
             text.toLowerCase().includes(word.toLowerCase())
         );
     }
@@ -27,14 +27,14 @@ class ContentProcessor {
         });
 
         if (matchedWord) {
+            console.log('Calling updateStats with:', matchedWord, siteType);
             statsManager.updateStats(matchedWord, siteType);
         }
     }
 
     async process() {
         try {
-            const state = await sharedState.getState();
-            if (!state.isEnabled) return;
+            if (!stateManager.isEnabled) return;
 
             const now = Date.now();
             if (now - this.lastCheck < MUTATION_CHECK_INTERVAL) return;
@@ -54,7 +54,7 @@ class ContentProcessor {
                 if (element.hasAttribute('data-checked')) return;
                 
                 const text = element.textContent.toLowerCase();
-                if (state.wordsToRemove.some(word => text.includes(word.toLowerCase()))) {
+                if (stateManager.wordsToRemove.some(word => text.includes(word.toLowerCase()))) {
                     console.log('Found matching word in:', text.slice(0, 100));
                     const target = siteHandlers.findBestElementToRemove(element, siteType);
                     if (target && target !== document.body) {
@@ -79,5 +79,3 @@ class ContentProcessor {
         }, ANIMATION_DURATION);
     }
 }
-
-export const contentProcessor = new ContentProcessor();

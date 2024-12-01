@@ -1,29 +1,69 @@
 import { stateManager } from './stateManager.js';
-import { observer } from './observer.js';
-import { contentProcessor } from './contentProcessor.js';
+import { Observer } from './observer.js';
+import { ContentProcessor } from './contentProcessor.js';
 import { YOUTUBE_CHECK_TIMEOUT } from './config.js';
 import { siteHandlers } from './siteHandlers.js';
 
+let initialized = false;
+let observer = null;
+let contentProcessor = null;
+
 async function startExtension() {
-    const state = await stateManager.initialize();
-    stateManager.setupMessageListeners(contentProcessor);
-    
-    if (document.body) {
-        console.log('✨ DeTrumper: Starting up on ' + siteHandlers.getSiteType());
-        observer.setup();
-    } else {
-        document.addEventListener('DOMContentLoaded', () => {
+    try {
+        // Check if chrome.runtime is still available
+        if (!chrome.runtime || !chrome.runtime.id) {
+            console.log('Extension context invalidated, reloading page...');
+            window.location.reload();
+            return;
+        }
+
+        if (initialized) return;
+        initialized = true;
+
+        const state = await stateManager.initialize();
+        contentProcessor = new ContentProcessor();
+        observer = new Observer(contentProcessor);
+        
+        stateManager.setupMessageListeners(contentProcessor);
+        
+        if (document.body) {
             console.log('✨ DeTrumper: Starting up on ' + siteHandlers.getSiteType());
             observer.setup();
-        });
-    }
+        } else {
+            document.addEventListener('DOMContentLoaded', () => {
+                console.log('✨ DeTrumper: Starting up on ' + siteHandlers.getSiteType());
+                observer.setup();
+            });
+        }
 
-    handleYouTubeInit();
+        handleYouTubeInit(contentProcessor);
+
+        // Add runtime disconnect listener
+        chrome.runtime.onConnect.addListener(function(port) {
+            port.onDisconnect.addListener(function() {
+                if (chrome.runtime.lastError || !chrome.runtime.id) {
+                    initialized = false;
+                    cleanup();
+                    window.location.reload();
+                }
+            });
+        });
+
+    } catch (error) {
+        console.error('Failed to start extension:', error);
+        if (error.message.includes('Extension context invalidated')) {
+            window.location.reload();
+        }
+    }
 }
 
-function handleYouTubeInit() {
+function handleYouTubeInit(contentProcessor) {
     if (siteHandlers.getSiteType() === 'youtube') {
         let loadCheckInterval = setInterval(() => {
+            if (!chrome.runtime.id) {
+                clearInterval(loadCheckInterval);
+                return;
+            }
             if (document.querySelector('ytd-app')) {
                 contentProcessor.process();
                 clearInterval(loadCheckInterval);
@@ -38,19 +78,34 @@ function handleYouTubeInit() {
     }
 }
 
+function cleanup() {
+    if (observer) {
+        observer.cleanup();
+    }
+    if (stateManager) {
+        stateManager.cleanup();
+    }
+}
+
 // Initialize
 startExtension().catch(error => {
     console.error('Failed to start extension:', error);
+    if (error.message.includes('Extension context invalidated')) {
+        window.location.reload();
+    }
 });
 
 // Cleanup
-window.addEventListener('unload', () => {
-    observer.cleanup();
-    stateManager.cleanup();
-});
+window.addEventListener('unload', cleanup);
 
 // Message handling
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+    // Check if extension context is still valid
+    if (!chrome.runtime.id) {
+        window.location.reload();
+        return;
+    }
+
     if (request.action === "updateWords") {
         stateManager.isEnabled = request.isEnabled !== undefined ? request.isEnabled : true;
         
@@ -69,9 +124,17 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
                 tabId: chrome.runtime.id
             });
 
-            if (stateManager.isEnabled) {
+            if (stateManager.isEnabled && contentProcessor) {
                 contentProcessor.process();
             }
         });
     }
 });
+
+// Add a context check interval
+setInterval(() => {
+    if (!chrome.runtime.id) {
+        cleanup();
+        window.location.reload();
+    }
+}, 1000);

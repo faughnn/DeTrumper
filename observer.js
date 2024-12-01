@@ -1,13 +1,12 @@
-import { contentProcessor } from './contentProcessor.js';
-
-class Observer {
-    constructor() {
+export class Observer {
+    constructor(contentProcessor) {
         this.observer = null;
+        this.contentProcessor = contentProcessor;
     }
 
     setup() {
         this.observer = new MutationObserver((mutations) => {
-            requestAnimationFrame(() => contentProcessor.process());
+            requestAnimationFrame(() => this.contentProcessor.process());
         });
 
         this.observer.observe(document.body, {
@@ -15,7 +14,7 @@ class Observer {
             subtree: true
         });
 
-        contentProcessor.process();
+        this.contentProcessor.process();
         
         return this.observer;
     }
@@ -26,5 +25,3 @@ class Observer {
         }
     }
 }
-
-export const observer = new Observer();
