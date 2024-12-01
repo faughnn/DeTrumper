@@ -1,5 +1,6 @@
+const DEFAULT_WORDS = ['trump', 'musk', 'elon', 'rogan'];
+
 document.addEventListener('DOMContentLoaded', function() {
-    const DEFAULT_WORDS = ['trump', 'musk'];
     let isEnabled = true;
     const toggleBtn = document.getElementById('toggleExtension');
 
@@ -106,8 +107,9 @@ document.addEventListener('DOMContentLoaded', function() {
         words.forEach(word => {
             const div = document.createElement('div');
             div.className = 'word-item';
+            const capitalizedWord = word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
             div.innerHTML = `
-                <span>${word}</span>
+                <span>${capitalizedWord}</span>
                 <button class="delete-btn">Remove</button>
             `;
             wordList.appendChild(div);
@@ -115,7 +117,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         document.querySelectorAll('.delete-btn').forEach(button => {
             button.onclick = function() {
-                removeWord(this.parentElement.querySelector('span').textContent);
+                removeWord(this.parentElement.querySelector('span').textContent.toLowerCase());
             };
         });
     }

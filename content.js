@@ -64,6 +64,11 @@ async function initializeExtension() {
     try {
         const state = await chrome.storage.local.get(['isEnabled', 'blockedWords', 'blockStats']);
         
+        // If blockedWords doesn't exist in storage, set it with DEFAULT_WORDS
+        if (!state.blockedWords) {
+            await chrome.storage.local.set({ blockedWords: DEFAULT_WORDS });
+        }
+
         // Request current state from other tabs
         stateChannel.postMessage({
             type: STATE_TYPES.REQUEST_STATE,
