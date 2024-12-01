@@ -1,4 +1,4 @@
-const DEFAULT_WORDS = ['trump', 'musk'];
+const DEFAULT_WORDS = ['trump', 'musk', 'elon', 'rogan'];
 let wordsToRemove = DEFAULT_WORDS;
 let removedCount = 0;
 let lastCheck = 0;
@@ -11,37 +11,60 @@ let sessionStats = {
     timeStarted: Date.now()
 };
 
-// Initialize stats
-chrome.storage.local.get(['blockStats'], function(result) {
-    if (!result.blockStats) {
-        chrome.storage.local.set({
-            blockStats: {
-                totalBlocked: 0,
-                siteStats: {},
-                wordStats: {},
-                timeStarted: Date.now()
-            }
-        });
-    }
-});
+async function initializeExtension() {
+    try {
+        // Initialize extension state first
+        const { isEnabled } = await chrome.storage.local.get(['isEnabled']);
+        const globalState = {
+            isEnabled: isEnabled !== undefined ? isEnabled : true,
+            wordsToRemove: DEFAULT_WORDS,
+            removedCount: 0,
+            lastCheck: 0
+        };
 
-// Initialize browser session stats
-chrome.storage.session.set({
-    sessionStats: {
-        totalBlocked: 0,
-        siteStats: {},
-        wordStats: {},
-        timeStarted: Date.now()
-    }
-});
+        // Initialize statistics storage
+        const { blockStats } = await chrome.storage.local.get(['blockStats']);
+        if (!blockStats) {
+            await chrome.storage.local.set({
+                blockStats: {
+                    totalBlocked: 0,
+                    siteStats: {},
+                    wordStats: {},
+                    timeStarted: Date.now()
+                }
+            });
+        }
 
-// Initialize extension state
-chrome.storage.local.get(['isEnabled'], function(result) {
-    isEnabled = result.isEnabled !== undefined ? result.isEnabled : true;
-    if (!isEnabled) {
-        resetSessionStats();
+        // Initialize session statistics
+        const sessionStats = {
+            totalBlocked: 0,
+            siteStats: {},
+            wordStats: {},
+            timeStarted: Date.now()
+        };
+        await chrome.storage.session.set({ sessionStats });
+
+        // Get blocked words list
+        const { blockedWords } = await chrome.storage.local.get(['blockedWords']);
+        globalState.wordsToRemove = blockedWords || DEFAULT_WORDS;
+
+        // Reset session if extension is disabled
+        if (!globalState.isEnabled) {
+            await resetSessionStats();
+        }
+
+        return globalState;
+    } catch (error) {
+        console.error('Initialization failed:', error);
+        // Return default state as fallback
+        return {
+            isEnabled: true,
+            wordsToRemove: DEFAULT_WORDS,
+            removedCount: 0,
+            lastCheck: 0
+        };
     }
-});
+}
 
 function getSiteType() {
     if (window.location.hostname.includes('reddit.com')) return 'reddit';
@@ -81,7 +104,6 @@ function findBestElementToRemove(element, siteType) {
 function updateStats(matchedWord, siteType) {
     if (!isEnabled) return;
     
-    // Update total stats
     chrome.storage.local.get(['blockStats'], function(result) {
         let stats = result.blockStats || {
             totalBlocked: 0,
@@ -96,12 +118,10 @@ function updateStats(matchedWord, siteType) {
 
         chrome.storage.local.set({ blockStats: stats });
 
-        // Update session stats
         sessionStats.totalBlocked += 1;
         sessionStats.siteStats[siteType] = (sessionStats.siteStats[siteType] || 0) + 1;
         sessionStats.wordStats[matchedWord] = (sessionStats.wordStats[matchedWord] || 0) + 1;
 
-        // Store session stats
         chrome.storage.local.set({ sessionStats: sessionStats });
     });
 }
@@ -207,19 +227,12 @@ function setupContentObserver() {
     return observer;
 }
 
-chrome.storage.local.get(['blockedWords'], function(result) {
-    if (result.blockedWords) {
-        wordsToRemove = result.blockedWords;
-    }
-});
-
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     if (request.action === "updateWords") {
         isEnabled = request.isEnabled !== undefined ? request.isEnabled : true;
         
         if (!isEnabled) {
             resetSessionStats();
-            // Optional: window.location.reload();
         }
         
         chrome.storage.local.get(['blockedWords'], function(result) {
@@ -231,31 +244,45 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     }
 });
 
-let observer;
-if (document.body) {
-    console.log('✨ DeTrumper: Starting up on ' + getSiteType());
-    observer = setupContentObserver();
-} else {
-    document.addEventListener('DOMContentLoaded', () => {
+// Start the extension
+async function startExtension() {
+    const state = await initializeExtension();
+    
+    isEnabled = state.isEnabled;
+    wordsToRemove = state.wordsToRemove;
+    removedCount = state.removedCount;
+    lastCheck = state.lastCheck;
+
+    if (document.body) {
         console.log('✨ DeTrumper: Starting up on ' + getSiteType());
         observer = setupContentObserver();
-    });
+    } else {
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('✨ DeTrumper: Starting up on ' + getSiteType());
+            observer = setupContentObserver();
+        });
+    }
+
+    if (getSiteType() === 'youtube') {
+        let loadCheckInterval = setInterval(() => {
+            if (document.querySelector('ytd-app')) {
+                processMutations([]);
+                clearInterval(loadCheckInterval);
+            }
+        }, 100);
+        
+        setTimeout(() => {
+            if (loadCheckInterval) {
+                clearInterval(loadCheckInterval);
+            }
+        }, 10000);
+    }
 }
 
-if (getSiteType() === 'youtube') {
-    let loadCheckInterval = setInterval(() => {
-        if (document.querySelector('ytd-app')) {
-            processMutations([]);
-            clearInterval(loadCheckInterval);
-        }
-    }, 100);
-    
-    setTimeout(() => {
-        if (loadCheckInterval) {
-            clearInterval(loadCheckInterval);
-        }
-    }, 10000);
-}
+let observer;
+startExtension().catch(error => {
+    console.error('Failed to start extension:', error);
+});
 
 window.addEventListener('unload', () => {
     if (observer) {
