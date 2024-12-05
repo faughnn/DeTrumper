@@ -56,6 +56,16 @@
 
     const DEFAULT_WORDS = ['trump', 'musk', 'elon', 'rogan'];
 
+    const LOG_LEVELS = {
+        ERROR: 0,   // Only errors and critical issues
+        WARN: 1,    // Warnings and errors
+        INFO: 2,    // General information plus warnings and errors
+        DEBUG: 3    // Detailed debugging information, all messages
+    };
+
+    const LOG_LEVEL = LOG_LEVELS.ERROR; // Default log level
+     // ms
+
     class WordManager {
         constructor() {
             this.words = DEFAULT_WORDS;
@@ -159,23 +169,59 @@
 
     const sharedState = new SharedState();
 
+    class Logger {
+        constructor() {
+            this.currentLevel = LOG_LEVEL;
+        }
+
+        error(...args) {
+            if (this.currentLevel >= LOG_LEVELS.ERROR) {
+                console.error('🔴 ERROR:', ...args);
+            }
+        }
+
+        warn(...args) {
+            if (this.currentLevel >= LOG_LEVELS.WARN) {
+                console.warn('🟡 WARN:', ...args);
+            }
+        }
+
+        info(...args) {
+            if (this.currentLevel >= LOG_LEVELS.INFO) {
+                console.log('🔵 INFO:', ...args);
+            }
+        }
+
+        debug(...args) {
+            if (this.currentLevel >= LOG_LEVELS.DEBUG) {
+                console.log('🟣 DEBUG:', ...args);
+            }
+        }
+
+        setLevel(level) {
+            this.currentLevel = level;
+        }
+    }
+
+    const logger = new Logger();
+
     let StatsManager$1 = class StatsManager {
         constructor() {
             this.sessionStats = this.getInitialStats();
         }
 
         async updateStats(matchedWord, siteType) {
-            console.log('Updating stats for:', matchedWord, 'on site:', siteType);
+            logger.debug('Updating stats for:', matchedWord, 'on site:', siteType);
             
             const state = await sharedState.getState();
             if (!state.isEnabled) {
-                console.log('Stats update skipped - extension disabled');
+                logger.info('Stats update skipped - extension disabled');
                 return;
             }
             
             try {
                 const result = await chrome.storage.local.get(['blockStats']);
-                console.log('Current stored stats:', result.blockStats);
+                logger.debug('Current stored stats:', result.blockStats);
                 
                 let stats = result.blockStats || this.getInitialStats();
 
@@ -183,13 +229,13 @@
                 stats.siteStats[siteType] = (stats.siteStats[siteType] || 0) + 1;
                 stats.wordStats[matchedWord] = (stats.wordStats[matchedWord] || 0) + 1;
 
-                console.log('Saving updated stats:', stats);
+                logger.debug('Saving updated stats:', stats);
                 await chrome.storage.local.set({ blockStats: stats });
                 
                 this.updateSessionStats(matchedWord, siteType);
-                console.log('Session stats updated:', this.sessionStats);
+                logger.debug('Session stats updated:', this.sessionStats);
             } catch (error) {
-                console.error('Failed to update stats:', error);
+                logger.error('Failed to update stats:', error);
             }
         }
 

@@ -2,6 +2,7 @@ import { ANIMATION_DURATION, MUTATION_CHECK_INTERVAL } from './config.js';
 import { siteHandlers } from './siteHandlers.js';
 import { statsManager } from './statsManager.js';
 import { stateManager } from './stateManager.js';
+import { logger } from './logger.js';
 
 export class ContentProcessor {
     constructor() {
@@ -17,7 +18,7 @@ export class ContentProcessor {
 
     logRemoval(element, siteType, text) {
         const matchedWord = this.findMatchingWord(text);
-        console.log('🗑️ Removed:', {
+        logger.info('Removed:', {
             site: siteType,
             type: element.tagName,
             classes: element.className,
@@ -27,7 +28,7 @@ export class ContentProcessor {
         });
 
         if (matchedWord) {
-            console.log('Calling updateStats with:', matchedWord, siteType);
+            logger.debug('Calling updateStats with:', matchedWord, siteType);
             statsManager.updateStats(matchedWord, siteType);
         }
     }
@@ -41,21 +42,21 @@ export class ContentProcessor {
             this.lastCheck = now;
 
             const siteType = siteHandlers.getSiteType();
-            console.log('Site type:', siteType);
+            logger.debug('Site type:', siteType);
             
             if (siteType === 'other') return;
 
             siteHandlers.handleLayoutAdjustment(siteType);
 
             const elements = siteHandlers.getElementsToCheck(siteType);
-            console.log('Found elements:', elements.length);
+            logger.debug('Found elements:', elements.length);
 
             elements.forEach(element => {
                 if (element.hasAttribute('data-checked')) return;
                 
                 const text = element.textContent.toLowerCase();
                 if (stateManager.wordsToRemove.some(word => text.includes(word.toLowerCase()))) {
-                    console.log('Found matching word in:', text.slice(0, 100));
+                    logger.debug('Found matching word in:', text.slice(0, 100));
                     const target = siteHandlers.findBestElementToRemove(element, siteType);
                     if (target && target !== document.body) {
                         this.removeElement(target, siteType, text);
@@ -64,7 +65,7 @@ export class ContentProcessor {
                 element.setAttribute('data-checked', 'true');
             });
         } catch (error) {
-            console.error('Error in process:', error);
+            logger.error('Error in process:', error);
         }
     }
 

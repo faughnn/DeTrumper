@@ -4,23 +4,25 @@ export default [
         output: {
             file: 'content-bundle.js',
             format: 'iife',
-            name: 'content',
-            globals: {
-                chrome: 'chrome'
-            }
+            name: 'content'
         },
-        external: ['chrome']
+        onwarn(warning, warn) {
+            // Suppress circular dependency warnings
+            if (warning.code === 'CIRCULAR_DEPENDENCY') return;
+            warn(warning);
+        }
     },
     {
         input: 'popup.js',
         output: {
             file: 'popup-bundle.js',
             format: 'iife',
-            name: 'popup',
-            globals: {
-                chrome: 'chrome'
-            }
+            name: 'popup'
         },
-        external: ['chrome']
+        onwarn(warning, warn) {
+            // Suppress circular dependency warnings
+            if (warning.code === 'CIRCULAR_DEPENDENCY') return;
+            warn(warning);
+        }
     }
 ];

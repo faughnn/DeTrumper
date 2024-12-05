@@ -1,5 +1,5 @@
-import { DEFAULT_WORDS } from './config.js';
-import { STATE_TYPES } from './config.js';
+import { DEFAULT_WORDS, STATE_TYPES } from './config.js';
+import { logger } from './logger.js';
 
 class StateManager {
     constructor() {
@@ -33,7 +33,7 @@ class StateManager {
                 lastCheck: 0
             };
         } catch (error) {
-            console.error('State initialization failed:', error);
+            logger.error('State initialization failed:', error);
             return this.getDefaultState();
         }
     }

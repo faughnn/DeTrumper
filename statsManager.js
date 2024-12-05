@@ -1,4 +1,5 @@
 import { sharedState } from './sharedState.js';
+import { logger } from './logger.js';
 
 class StatsManager {
     constructor() {
@@ -6,17 +7,17 @@ class StatsManager {
     }
 
     async updateStats(matchedWord, siteType) {
-        console.log('Updating stats for:', matchedWord, 'on site:', siteType);
+        logger.debug('Updating stats for:', matchedWord, 'on site:', siteType);
         
         const state = await sharedState.getState();
         if (!state.isEnabled) {
-            console.log('Stats update skipped - extension disabled');
+            logger.info('Stats update skipped - extension disabled');
             return;
         }
         
         try {
             const result = await chrome.storage.local.get(['blockStats']);
-            console.log('Current stored stats:', result.blockStats);
+            logger.debug('Current stored stats:', result.blockStats);
             
             let stats = result.blockStats || this.getInitialStats();
 
@@ -24,13 +25,13 @@ class StatsManager {
             stats.siteStats[siteType] = (stats.siteStats[siteType] || 0) + 1;
             stats.wordStats[matchedWord] = (stats.wordStats[matchedWord] || 0) + 1;
 
-            console.log('Saving updated stats:', stats);
+            logger.debug('Saving updated stats:', stats);
             await chrome.storage.local.set({ blockStats: stats });
             
             this.updateSessionStats(matchedWord, siteType);
-            console.log('Session stats updated:', this.sessionStats);
+            logger.debug('Session stats updated:', this.sessionStats);
         } catch (error) {
-            console.error('Failed to update stats:', error);
+            logger.error('Failed to update stats:', error);
         }
     }
 

@@ -3,6 +3,15 @@
 
     const DEFAULT_WORDS$1 = ['trump', 'musk', 'elon', 'rogan'];
 
+    const LOG_LEVELS = {
+        ERROR: 0,   // Only errors and critical issues
+        WARN: 1,    // Warnings and errors
+        INFO: 2,    // General information plus warnings and errors
+        DEBUG: 3    // Detailed debugging information, all messages
+    };
+
+    const LOG_LEVEL = LOG_LEVELS.ERROR; // Default log level
+
     const STATE_TYPES$1 = {
         WORDS_UPDATED: 'WORDS_UPDATED',
         TOGGLE_STATE: 'TOGGLE_STATE',
@@ -19,6 +28,43 @@
     const MUTATION_CHECK_INTERVAL = 100; // ms
     const ANIMATION_DURATION = 300; // ms
     const YOUTUBE_CHECK_TIMEOUT = 10000; // ms
+     // ms
+
+    class Logger {
+        constructor() {
+            this.currentLevel = LOG_LEVEL;
+        }
+
+        error(...args) {
+            if (this.currentLevel >= LOG_LEVELS.ERROR) {
+                console.error('🔴 ERROR:', ...args);
+            }
+        }
+
+        warn(...args) {
+            if (this.currentLevel >= LOG_LEVELS.WARN) {
+                console.warn('🟡 WARN:', ...args);
+            }
+        }
+
+        info(...args) {
+            if (this.currentLevel >= LOG_LEVELS.INFO) {
+                console.log('🔵 INFO:', ...args);
+            }
+        }
+
+        debug(...args) {
+            if (this.currentLevel >= LOG_LEVELS.DEBUG) {
+                console.log('🟣 DEBUG:', ...args);
+            }
+        }
+
+        setLevel(level) {
+            this.currentLevel = level;
+        }
+    }
+
+    const logger = new Logger();
 
     class StateManager {
         constructor() {
@@ -52,7 +98,7 @@
                     lastCheck: 0
                 };
             } catch (error) {
-                console.error('State initialization failed:', error);
+                logger.error('State initialization failed:', error);
                 return this.getDefaultState();
             }
         }
@@ -259,17 +305,17 @@
         }
 
         async updateStats(matchedWord, siteType) {
-            console.log('Updating stats for:', matchedWord, 'on site:', siteType);
+            logger.debug('Updating stats for:', matchedWord, 'on site:', siteType);
             
             const state = await sharedState.getState();
             if (!state.isEnabled) {
-                console.log('Stats update skipped - extension disabled');
+                logger.info('Stats update skipped - extension disabled');
                 return;
             }
             
             try {
                 const result = await chrome.storage.local.get(['blockStats']);
-                console.log('Current stored stats:', result.blockStats);
+                logger.debug('Current stored stats:', result.blockStats);
                 
                 let stats = result.blockStats || this.getInitialStats();
 
@@ -277,13 +323,13 @@
                 stats.siteStats[siteType] = (stats.siteStats[siteType] || 0) + 1;
                 stats.wordStats[matchedWord] = (stats.wordStats[matchedWord] || 0) + 1;
 
-                console.log('Saving updated stats:', stats);
+                logger.debug('Saving updated stats:', stats);
                 await chrome.storage.local.set({ blockStats: stats });
                 
                 this.updateSessionStats(matchedWord, siteType);
-                console.log('Session stats updated:', this.sessionStats);
+                logger.debug('Session stats updated:', this.sessionStats);
             } catch (error) {
-                console.error('Failed to update stats:', error);
+                logger.error('Failed to update stats:', error);
             }
         }
 
@@ -326,7 +372,7 @@
 
         logRemoval(element, siteType, text) {
             const matchedWord = this.findMatchingWord(text);
-            console.log('🗑️ Removed:', {
+            logger.info('Removed:', {
                 site: siteType,
                 type: element.tagName,
                 classes: element.className,
@@ -336,7 +382,7 @@
             });
 
             if (matchedWord) {
-                console.log('Calling updateStats with:', matchedWord, siteType);
+                logger.debug('Calling updateStats with:', matchedWord, siteType);
                 statsManager$1.updateStats(matchedWord, siteType);
             }
         }
@@ -350,21 +396,21 @@
                 this.lastCheck = now;
 
                 const siteType = siteHandlers.getSiteType();
-                console.log('Site type:', siteType);
+                logger.debug('Site type:', siteType);
                 
                 if (siteType === 'other') return;
 
                 siteHandlers.handleLayoutAdjustment(siteType);
 
                 const elements = siteHandlers.getElementsToCheck(siteType);
-                console.log('Found elements:', elements.length);
+                logger.debug('Found elements:', elements.length);
 
                 elements.forEach(element => {
                     if (element.hasAttribute('data-checked')) return;
                     
                     const text = element.textContent.toLowerCase();
                     if (stateManager.wordsToRemove.some(word => text.includes(word.toLowerCase()))) {
-                        console.log('Found matching word in:', text.slice(0, 100));
+                        logger.debug('Found matching word in:', text.slice(0, 100));
                         const target = siteHandlers.findBestElementToRemove(element, siteType);
                         if (target && target !== document.body) {
                             this.removeElement(target, siteType, text);
@@ -373,7 +419,7 @@
                     element.setAttribute('data-checked', 'true');
                 });
             } catch (error) {
-                console.error('Error in process:', error);
+                logger.error('Error in process:', error);
             }
         }
 
@@ -397,7 +443,7 @@
         try {
             // Check if chrome.runtime is still available
             if (!chrome.runtime || !chrome.runtime.id) {
-                console.log('Extension context invalidated, reloading page...');
+                logger.warn('Extension context invalidated, reloading page...');
                 window.location.reload();
                 return;
             }
@@ -412,11 +458,11 @@
             stateManager.setupMessageListeners(contentProcessor);
             
             if (document.body) {
-                console.log('✨ DeTrumper: Starting up on ' + siteHandlers.getSiteType());
+                logger.info('DeTrumper: Starting up on ' + siteHandlers.getSiteType());
                 observer.setup();
             } else {
                 document.addEventListener('DOMContentLoaded', () => {
-                    console.log('✨ DeTrumper: Starting up on ' + siteHandlers.getSiteType());
+                    logger.info('DeTrumper: Starting up on ' + siteHandlers.getSiteType());
                     observer.setup();
                 });
             }
@@ -435,7 +481,7 @@
             });
 
         } catch (error) {
-            console.error('Failed to start extension:', error);
+            logger.error('Failed to start extension:', error);
             if (error.message.includes('Extension context invalidated')) {
                 window.location.reload();
             }
@@ -474,7 +520,7 @@
 
     // Initialize
     startExtension().catch(error => {
-        console.error('Failed to start extension:', error);
+        logger.error('Failed to start extension:', error);
         if (error.message.includes('Extension context invalidated')) {
             window.location.reload();
         }

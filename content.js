@@ -1,8 +1,13 @@
 import { stateManager } from './stateManager.js';
 import { Observer } from './observer.js';
 import { ContentProcessor } from './contentProcessor.js';
-import { YOUTUBE_CHECK_TIMEOUT } from './config.js';
+import { YOUTUBE_CHECK_TIMEOUT, LOG_LEVEL, LOG_LEVELS } from './config.js';
 import { siteHandlers } from './siteHandlers.js';
+import { logger } from './logger.js';
+
+// Immediately verify logging level
+logger.debug('Current log level:', LOG_LEVEL);
+logger.info('Starting DeTrumper extension');
 
 let initialized = false;
 let observer = null;
@@ -12,7 +17,7 @@ async function startExtension() {
     try {
         // Check if chrome.runtime is still available
         if (!chrome.runtime || !chrome.runtime.id) {
-            console.log('Extension context invalidated, reloading page...');
+            logger.warn('Extension context invalidated, reloading page...');
             window.location.reload();
             return;
         }
@@ -27,11 +32,11 @@ async function startExtension() {
         stateManager.setupMessageListeners(contentProcessor);
         
         if (document.body) {
-            console.log('✨ DeTrumper: Starting up on ' + siteHandlers.getSiteType());
+            logger.info('DeTrumper: Starting up on ' + siteHandlers.getSiteType());
             observer.setup();
         } else {
             document.addEventListener('DOMContentLoaded', () => {
-                console.log('✨ DeTrumper: Starting up on ' + siteHandlers.getSiteType());
+                logger.info('DeTrumper: Starting up on ' + siteHandlers.getSiteType());
                 observer.setup();
             });
         }
@@ -50,7 +55,7 @@ async function startExtension() {
         });
 
     } catch (error) {
-        console.error('Failed to start extension:', error);
+        logger.error('Failed to start extension:', error);
         if (error.message.includes('Extension context invalidated')) {
             window.location.reload();
         }
@@ -89,7 +94,7 @@ function cleanup() {
 
 // Initialize
 startExtension().catch(error => {
-    console.error('Failed to start extension:', error);
+    logger.error('Failed to start extension:', error);
     if (error.message.includes('Extension context invalidated')) {
         window.location.reload();
     }
