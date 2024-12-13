@@ -2,9 +2,12 @@ import { SITE_TYPES } from './config.js';
 
 class SiteHandlers {
     getSiteType() {
-        if (window.location.hostname.includes('reddit.com')) return SITE_TYPES.REDDIT;
-        if (window.location.hostname.includes('youtube.com')) return SITE_TYPES.YOUTUBE;
-        return SITE_TYPES.OTHER;
+        const hostname = window.location.hostname;
+        if (hostname.includes('reddit.com')) return SITE_TYPES.REDDIT;
+        if (hostname.includes('youtube.com')) return SITE_TYPES.YOUTUBE;
+        // Instead of returning OTHER, let's identify the domain
+        const domain = hostname.replace('www.', '');
+        return domain || SITE_TYPES.OTHER;
     }
 
     findBestElementToRemove(element, siteType) {

@@ -35,8 +35,7 @@ class StatsManager {
                 timeStarted: Date.now()
             };
 
-            this.updateTotalStats(stats.totalBlocked || 0);
-            this.updateTimeSaved(stats.totalBlocked || 0);
+            this.updateMainStats(stats.totalBlocked || 0);
             this.updateStatsSection('wordStats', 'Words Filtered', stats.wordStats || {});
             this.updateStatsSection('siteStats', 'Sites Filtered', stats.siteStats || {});
             this.updateSessionStats(sessionStats);
@@ -46,25 +45,22 @@ class StatsManager {
         }
     }
 
-    updateTotalStats(totalBlocked) {
-        const el = document.getElementById('totalBlocked');
-        if (el) {
-            el.innerHTML = `
-                <div class="stat-box">
-                    <div class="stat-label">Total Items Hidden</div>
+    updateMainStats(totalBlocked) {
+        const totalBlockedEl = document.getElementById('totalBlocked');
+        const timeSavedEl = document.getElementById('timeSaved');
+        const minutesSaved = Math.round((totalBlocked * 15) / 60);
+
+        if (totalBlockedEl && timeSavedEl) {
+            totalBlockedEl.innerHTML = `
+                <div class="main-stat">
+                    <div class="stat-section-title">Total Items Hidden</div>
                     <div class="stat-value">${totalBlocked.toLocaleString()}</div>
                 </div>
             `;
-        }
-    }
 
-    updateTimeSaved(totalBlocked) {
-        const minutesSaved = Math.round((totalBlocked * 15) / 60);
-        const el = document.getElementById('timeSaved');
-        if (el) {
-            el.innerHTML = `
-                <div class="stat-box">
-                    <div class="stat-label">Estimated Time Saved</div>
+            timeSavedEl.innerHTML = `
+                <div class="main-stat">
+                    <div class="stat-section-title">Time Saved</div>
                     <div class="stat-value">${timeUtils.formatTimeSpent(minutesSaved)}</div>
                     <div class="stat-subtitle">Based on 15 seconds per item</div>
                 </div>
@@ -76,32 +72,35 @@ class StatsManager {
         const el = document.getElementById(elementId);
         if (!el) return;
 
+        // For site stats, ensure 'undefined' is categorized as 'Other Sites'
         const items = Object.entries(stats)
-            .sort(([, a], [, b]) => b - a)
             .map(([key, value]) => ({
-                label: key,
+                label: elementId === 'siteStats' && key === 'undefined' ? 'Other Sites' : key,
                 count: value
-            }));
+            }))
+            .sort((a, b) => b.count - a.count);
 
         if (items.length === 0) {
             el.innerHTML = `
-                <h3>${title}</h3>
-                <div class="stat-box empty">
-                    <div class="stat-label">No items filtered yet</div>
+                <div class="stat-section">
+                    <div class="stat-section-title">${title}</div>
+                    <div class="stat-empty">No items filtered yet</div>
                 </div>
             `;
             return;
         }
 
         el.innerHTML = `
-            <h3>${title}</h3>
-            <div class="stat-grid">
-                ${items.map(item => `
-                    <div class="stat-item">
-                        <span class="label">${item.label}</span>
-                        <span class="count">${item.count.toLocaleString()} items</span>
-                    </div>
-                `).join('')}
+            <div class="stat-section">
+                <div class="stat-section-title">${title}</div>
+                <div class="stat-list">
+                    ${items.map(item => `
+                        <div class="stat-item">
+                            <span class="label">${this.formatLabel(item.label)}</span>
+                            <span class="count">${item.count.toLocaleString()}</span>
+                        </div>
+                    `).join('')}
+                </div>
             </div>
         `;
     }
@@ -114,14 +113,16 @@ class StatsManager {
 
         el.innerHTML = `
             <div class="stat-section">
-                <h3>Current Session</h3>
-                <div class="stat-box">
-                    <div class="stat-label">Session Duration</div>
-                    <div class="stat-value">${timeUtils.formatTimeSpent(sessionDuration)}</div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Items Hidden This Session</div>
-                    <div class="stat-value">${sessionStats.totalBlocked.toLocaleString()}</div>
+                <div class="stat-section-title">Current Session</div>
+                <div class="session-stats">
+                    <div class="session-stat">
+                        <div class="stat-label">Duration</div>
+                        <div class="stat-value">${timeUtils.formatTimeSpent(sessionDuration)}</div>
+                    </div>
+                    <div class="session-stat">
+                        <div class="stat-label">Items Hidden</div>
+                        <div class="stat-value">${sessionStats.totalBlocked.toLocaleString()}</div>
+                    </div>
                 </div>
             </div>
         `;
@@ -131,12 +132,18 @@ class StatsManager {
         const statsContainer = document.getElementById('stats');
         if (statsContainer) {
             statsContainer.innerHTML = `
-                <div class="stat-box error">
-                    <div class="stat-label">Error loading statistics</div>
-                    <div class="stat-subtitle">Please try reloading the extension</div>
+                <div class="stat-section">
+                    <div class="error-box">
+                        <div class="stat-label">Error loading statistics</div>
+                        <div class="stat-subtitle">Please try reloading the extension</div>
+                    </div>
                 </div>
             `;
         }
+    }
+
+    formatLabel(key) {
+        return key.charAt(0).toUpperCase() + key.slice(1);
     }
 }
 

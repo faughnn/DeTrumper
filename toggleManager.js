@@ -1,11 +1,11 @@
 class ToggleManager {
     constructor() {
         this.isEnabled = true;
-        this.toggleBtn = null;
+        this.toggleEl = null;
     }
 
     initialize() {
-        this.toggleBtn = document.getElementById('toggleExtension');
+        this.toggleEl = document.getElementById('toggleExtension');
         this.loadState();
         this.setupEventListeners();
     }
@@ -13,25 +13,18 @@ class ToggleManager {
     async loadState() {
         const result = await chrome.storage.local.get(['isEnabled']);
         this.isEnabled = result.isEnabled !== undefined ? result.isEnabled : true;
-        this.updateToggleButton();
+        // Set initial state without animation
+        this.toggleEl.checked = this.isEnabled;
     }
 
     setupEventListeners() {
-        this.toggleBtn.addEventListener('click', () => this.toggleState());
+        this.toggleEl.addEventListener('change', () => this.toggleState());
     }
 
     async toggleState() {
         this.isEnabled = !this.isEnabled;
-        
         await chrome.storage.local.set({ isEnabled: this.isEnabled });
-        this.updateToggleButton();
         this.notifyTabs();
-    }
-
-    updateToggleButton() {
-        this.toggleBtn.textContent = this.isEnabled ? 'ON' : 'OFF';
-        this.toggleBtn.style.backgroundColor = this.isEnabled ? '#1a73e8' : '#dc3545';
-        this.toggleBtn.classList.toggle('active', this.isEnabled);
     }
 
     async notifyTabs() {
