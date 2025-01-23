@@ -125,9 +125,9 @@ body {
 #wordStats,
 #siteStats {
     background-color: #f8f9fa;
-    padding: 12px;
-    border-radius: 4px;
-    margin-top: 16px;
+    padding: 0px;
+    border-radius: 0px;
+    margin-top: 0px;
 }
 
 /* Status Message */
@@ -340,9 +340,9 @@ h3 {
 /* Statistics Layout Improvements */
 .stat-section {
     background: white;
-    border: 1px solid #e5e7eb;
+    #border: 1px solid #e5e7eb;
     border-radius: 6px;
-    padding: 12px;
+    padding: 2px;
     margin-bottom: 12px;
 }
 
