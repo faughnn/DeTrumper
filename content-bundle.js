@@ -204,6 +204,7 @@
             const hostname = window.location.hostname;
             if (hostname.includes('reddit.com')) return SITE_TYPES.REDDIT;
             if (hostname.includes('youtube.com')) return SITE_TYPES.YOUTUBE;
+            if (hostname.includes('linkedin.com')) return SITE_TYPES.LINKEDIN;
             // Instead of returning OTHER, let's identify the domain
             const domain = hostname.replace('www.', '');
             return domain || SITE_TYPES.OTHER;
@@ -215,6 +216,9 @@
             } 
             else if (siteType === SITE_TYPES.YOUTUBE) {
                 return this.findYoutubeElement(element);
+            }
+            else if (siteType === SITE_TYPES.LINKEDIN) {
+                return this.findLinkedInElement(element);
             }
             return element;
         }
@@ -247,6 +251,21 @@
             return element;
         }
 
+        findLinkedInElement(element) {
+            let current = element;
+            while (current && current !== document.body) {
+                if (current.classList.contains('feed-shared-update-v2') || 
+                    current.classList.contains('occludable-update') ||
+                    current.classList.contains('comments-comment-item') ||
+                    current.classList.contains('feed-shared-article') ||
+                    current.classList.contains('feed-shared-post')) {
+                    return current;
+                }
+                current = current.parentElement;
+            }
+            return element;
+        }
+
         handleLayoutAdjustment(siteType) {
             if (siteType === SITE_TYPES.REDDIT) {
                 this.adjustRedditLayout();
@@ -270,6 +289,8 @@
         getElementsToCheck(siteType) {
             if (siteType === SITE_TYPES.YOUTUBE) {
                 return document.querySelectorAll('ytd-video-renderer, ytd-comment-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-rich-item-renderer');
+            } else if (siteType === SITE_TYPES.LINKEDIN) {
+                return document.querySelectorAll('.feed-shared-update-v2, .occludable-update, .comments-comment-item, .feed-shared-article, .feed-shared-post');
             } else {
                 return document.querySelectorAll('article, .thing, .Comment, .comment, .Post, .post, div[data-testid="post-container"]');
             }

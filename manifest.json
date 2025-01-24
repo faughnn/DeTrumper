@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "DeTrumper",
   "version": "1.0",
-  "description": "A privacy-focused content filter that automatically removes posts and comments containing specified keywords from Reddit and YouTube. Features cross-tab synchronization, detailed statistics tracking, and a customizable word list to help you curate your online experience. By hiding unwanted content as you browse, the extension helps reduce distractions and saves your time.",
+  "description": "A privacy-focused content filter that automatically removes posts and comments containing specified keywords from Reddit, YouTube, and LinkedIn. Features cross-tab synchronization, detailed statistics tracking, and a customizable word list to help you curate your online experience. By hiding unwanted content as you browse, the extension helps reduce distractions and saves your time.",
   "icons": {
     "16": "icon16.png",
     "32": "icon32.png",
@@ -21,13 +21,12 @@
   "permissions": ["activeTab", "storage"],
   "content_scripts": [
     {
-      "matches": ["*://*.reddit.com/*"],
+      "matches": [
+        "*://*.reddit.com/*",
+        "*://*.youtube.com/*",
+        "*://*.linkedin.com/*"
+      ],
       "css": ["reddit-content.css"],
-      "js": ["content-bundle.js"],
-      "type": "module"
-    },
-    {
-      "matches": ["*://*.youtube.com/*"],
       "js": ["content-bundle.js"],
       "type": "module"
     }
