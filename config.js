@@ -19,10 +19,10 @@ export const STATE_TYPES = {
 export const SITE_TYPES = {
     REDDIT: 'reddit',
     YOUTUBE: 'youtube',
+    LINKEDIN: 'linkedin',
     OTHER: 'other'
 };
 
 export const MUTATION_CHECK_INTERVAL = 100; // ms
-export const ANIMATION_DURATION = 300; // ms
 export const YOUTUBE_CHECK_TIMEOUT = 10000; // ms
 export const STATUS_MESSAGE_DURATION = 2000; // ms

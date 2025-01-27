@@ -1,25 +1,26 @@
-import { toggleManager } from './toggleManager.js';
-import { wordManager } from './wordManager.js';
-import { statsManager } from './statsManager.js';
-
 class UIManager {
     constructor() {
         this.initialized = false;
+        this.wordManager = null;
+        this.statsManager = null;
     }
 
-    initialize() {
+    initialize(wordManager, statsManager) {
         if (this.initialized) return;
+
+        this.wordManager = wordManager;
+        this.statsManager = statsManager;
 
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => this.handleTabClick(tab));
         });
 
-        document.getElementById('addWord').addEventListener('click', () => wordManager.addWord());
+        document.getElementById('addWord').addEventListener('click', () => this.wordManager.addWord());
         document.getElementById('newWord').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') wordManager.addWord();
+            if (e.key === 'Enter') this.wordManager.addWord();
         });
 
-        statsManager.updateStats();
+        this.statsManager.updateStats();
         this.initialized = true;
     }
 
@@ -35,7 +36,7 @@ class UIManager {
         contentElement.classList.add('active');
         
         if (tab.dataset.tab === 'stats') {
-            statsManager.updateStats();
+            this.statsManager.updateStats();
         }
     }
 

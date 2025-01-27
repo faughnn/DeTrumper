@@ -10,7 +10,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         statsManager.initialize()
     ]);
     
-    uiManager.initialize();
+    uiManager.initialize(wordManager, statsManager);
 });
 
 // Cleanup when popup closes

@@ -1,6 +1,57 @@
 (function () {
     'use strict';
 
+    class UIManager {
+        constructor() {
+            this.initialized = false;
+            this.wordManager = null;
+            this.statsManager = null;
+        }
+
+        initialize(wordManager, statsManager) {
+            if (this.initialized) return;
+
+            this.wordManager = wordManager;
+            this.statsManager = statsManager;
+
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.addEventListener('click', () => this.handleTabClick(tab));
+            });
+
+            document.getElementById('addWord').addEventListener('click', () => this.wordManager.addWord());
+            document.getElementById('newWord').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') this.wordManager.addWord();
+            });
+
+            this.statsManager.updateStats();
+            this.initialized = true;
+        }
+
+        handleTabClick(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            const contentElement = document.getElementById(tab.dataset.tab);
+            contentElement.classList.add('active');
+            
+            if (tab.dataset.tab === 'stats') {
+                this.statsManager.updateStats();
+            }
+        }
+
+        showStatus(message) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            setTimeout(() => status.textContent = '', 2000);
+        }
+    }
+
+    const uiManager = new UIManager();
+
     class ToggleManager {
         constructor() {
             this.isEnabled = true;
@@ -48,15 +99,6 @@
     const toggleManager = new ToggleManager();
 
     const DEFAULT_WORDS = ['trump', 'musk', 'elon', 'rogan'];
-
-    const LOG_LEVELS = {
-        ERROR: 0,   // Only errors and critical issues
-        WARN: 1,    // Warnings and errors
-        INFO: 2,    // General information plus warnings and errors
-        DEBUG: 3    // Detailed debugging information, all messages
-    };
-
-    const LOG_LEVEL = LOG_LEVELS.ERROR; // Default log level
      // ms
 
     class WordManager {
@@ -137,171 +179,6 @@
     }
 
     const wordManager = new WordManager();
-
-    class SharedState {
-        constructor() {
-            this.isEnabled = true;
-            this.wordsToRemove = DEFAULT_WORDS;
-        }
-
-        async getState() {
-            const result = await chrome.storage.local.get(['isEnabled', 'blockedWords']);
-            return {
-                isEnabled: result.isEnabled !== undefined ? result.isEnabled : true,
-                wordsToRemove: result.blockedWords || DEFAULT_WORDS
-            };
-        }
-
-        async setState(state) {
-            await chrome.storage.local.set({
-                isEnabled: state.isEnabled,
-                blockedWords: state.wordsToRemove
-            });
-        }
-    }
-
-    const sharedState = new SharedState();
-
-    class Logger {
-        constructor() {
-            this.currentLevel = LOG_LEVEL;
-        }
-
-        error(...args) {
-            if (this.currentLevel >= LOG_LEVELS.ERROR) {
-                console.error('🔴 ERROR:', ...args);
-            }
-        }
-
-        warn(...args) {
-            if (this.currentLevel >= LOG_LEVELS.WARN) {
-                console.warn('🟡 WARN:', ...args);
-            }
-        }
-
-        info(...args) {
-            if (this.currentLevel >= LOG_LEVELS.INFO) {
-                console.log('🔵 INFO:', ...args);
-            }
-        }
-
-        debug(...args) {
-            if (this.currentLevel >= LOG_LEVELS.DEBUG) {
-                console.log('🟣 DEBUG:', ...args);
-            }
-        }
-
-        setLevel(level) {
-            this.currentLevel = level;
-        }
-    }
-
-    const logger = new Logger();
-
-    let StatsManager$1 = class StatsManager {
-        constructor() {
-            this.sessionStats = this.getInitialStats();
-        }
-
-        async updateStats(matchedWord, siteType) {
-            logger.debug('Updating stats for:', matchedWord, 'on site:', siteType);
-            
-            const state = await sharedState.getState();
-            if (!state.isEnabled) {
-                logger.info('Stats update skipped - extension disabled');
-                return;
-            }
-            
-            try {
-                const result = await chrome.storage.local.get(['blockStats']);
-                logger.debug('Current stored stats:', result.blockStats);
-                
-                let stats = result.blockStats || this.getInitialStats();
-
-                stats.totalBlocked += 1;
-                stats.siteStats[siteType] = (stats.siteStats[siteType] || 0) + 1;
-                stats.wordStats[matchedWord] = (stats.wordStats[matchedWord] || 0) + 1;
-
-                logger.debug('Saving updated stats:', stats);
-                await chrome.storage.local.set({ blockStats: stats });
-                
-                this.updateSessionStats(matchedWord, siteType);
-                logger.debug('Session stats updated:', this.sessionStats);
-            } catch (error) {
-                logger.error('Failed to update stats:', error);
-            }
-        }
-
-        updateSessionStats(matchedWord, siteType) {
-            this.sessionStats.totalBlocked += 1;
-            this.sessionStats.siteStats[siteType] = (this.sessionStats.siteStats[siteType] || 0) + 1;
-            this.sessionStats.wordStats[matchedWord] = (this.sessionStats.wordStats[matchedWord] || 0) + 1;
-
-            chrome.storage.local.set({ sessionStats: this.sessionStats });
-        }
-
-        resetSessionStats() {
-            this.sessionStats = this.getInitialStats();
-            chrome.storage.local.set({ sessionStats: this.sessionStats });
-        }
-
-        getInitialStats() {
-            return {
-                totalBlocked: 0,
-                siteStats: {},
-                wordStats: {},
-                timeStarted: Date.now()
-            };
-        }
-    };
-
-    const statsManager$1 = new StatsManager$1();
-
-    class UIManager {
-        constructor() {
-            this.initialized = false;
-        }
-
-        initialize() {
-            if (this.initialized) return;
-
-            document.querySelectorAll('.tab').forEach(tab => {
-                tab.addEventListener('click', () => this.handleTabClick(tab));
-            });
-
-            document.getElementById('addWord').addEventListener('click', () => wordManager.addWord());
-            document.getElementById('newWord').addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') wordManager.addWord();
-            });
-
-            statsManager$1.updateStats();
-            this.initialized = true;
-        }
-
-        handleTabClick(tab) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.remove('active');
-            });
-            
-            const contentElement = document.getElementById(tab.dataset.tab);
-            contentElement.classList.add('active');
-            
-            if (tab.dataset.tab === 'stats') {
-                statsManager$1.updateStats();
-            }
-        }
-
-        showStatus(message) {
-            const status = document.getElementById('status');
-            status.textContent = message;
-            setTimeout(() => status.textContent = '', 2000);
-        }
-    }
-
-    const uiManager = new UIManager();
 
     class TimeUtils {
         formatTimeSpent(minutes) {
@@ -476,7 +353,7 @@
             statsManager.initialize()
         ]);
         
-        uiManager.initialize();
+        uiManager.initialize(wordManager, statsManager);
     });
 
     // Cleanup when popup closes
