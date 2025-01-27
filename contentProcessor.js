@@ -1,4 +1,4 @@
-import { ANIMATION_DURATION, MUTATION_CHECK_INTERVAL } from './config.js';
+import { MUTATION_CHECK_INTERVAL } from './config.js';
 import { siteHandlers } from './siteHandlers.js';
 import { statsManager } from './statsManager.js';
 import { stateManager } from './stateManager.js';
@@ -70,13 +70,8 @@ export class ContentProcessor {
     }
 
     removeElement(element, siteType, text) {
-        element.classList.add('removed');
-        element.style.transition = 'opacity 0.3s ease-out';
-        element.style.opacity = '0';
-        
-        setTimeout(() => {
-            this.logRemoval(element, siteType, text);
-            element.remove();
-        }, ANIMATION_DURATION);
+        // Immediately remove the element without animation
+        this.logRemoval(element, siteType, text);
+        element.remove();
     }
 }

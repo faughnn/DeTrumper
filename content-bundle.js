@@ -26,7 +26,6 @@
     };
 
     const MUTATION_CHECK_INTERVAL = 100; // ms
-    const ANIMATION_DURATION = 300; // ms
     const YOUTUBE_CHECK_TIMEOUT = 10000; // ms
      // ms
 
@@ -205,7 +204,6 @@
             if (hostname.includes('reddit.com')) return SITE_TYPES.REDDIT;
             if (hostname.includes('youtube.com')) return SITE_TYPES.YOUTUBE;
             if (hostname.includes('linkedin.com')) return SITE_TYPES.LINKEDIN;
-            // Instead of returning OTHER, let's identify the domain
             const domain = hostname.replace('www.', '');
             return domain || SITE_TYPES.OTHER;
         }
@@ -226,10 +224,28 @@
         findRedditElement(element) {
             let current = element;
             while (current && current !== document.body) {
-                if (current.classList.contains('thing') || 
-                    current.tagName === 'ARTICLE' ||
+                // New Reddit UI selectors
+                if (
+                    current.classList.contains('Post') ||
+                    current.tagName === 'SHREDDIT-POST' ||
                     current.classList.contains('Comment') ||
-                    current.classList.contains('Post')) {
+                    current.tagName === 'SHREDDIT-COMMENT' ||
+                    current.getAttribute('data-testid') === 'post-container' ||
+                    current.classList.contains('ListingLayout-post') ||
+                    current.classList.contains('scrollerItem') ||
+                    (current.tagName === 'DIV' && current.getAttribute('data-testid') === 'comment') ||
+                    // Feed items in new UI
+                    (current.tagName === 'DIV' && current.getAttribute('data-testid')?.includes('feed-item'))
+                ) {
+                    return current;
+                }
+                // Old Reddit UI selectors
+                if (
+                    current.classList.contains('thing') ||
+                    current.classList.contains('entry') ||
+                    current.classList.contains('comment') ||
+                    (current.tagName === 'DIV' && current.classList.contains('sitetable'))
+                ) {
                     return current;
                 }
                 current = current.parentElement;
@@ -273,6 +289,7 @@
         }
 
         adjustRedditLayout() {
+            // New Reddit UI
             const mainContainer = document.querySelector('.ListingLayout-backgroundContainer');
             if (mainContainer) {
                 mainContainer.style.maxWidth = 'none';
@@ -284,6 +301,13 @@
                 contentContainer.style.margin = '0 auto';
                 contentContainer.style.maxWidth = '1200px';
             }
+
+            // Old Reddit UI
+            const oldContentContainer = document.querySelector('.content[role="main"]');
+            if (oldContentContainer) {
+                oldContentContainer.style.margin = '0 auto';
+                oldContentContainer.style.maxWidth = '1200px';
+            }
         }
 
         getElementsToCheck(siteType) {
@@ -291,6 +315,23 @@
                 return document.querySelectorAll('ytd-video-renderer, ytd-comment-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-rich-item-renderer');
             } else if (siteType === SITE_TYPES.LINKEDIN) {
                 return document.querySelectorAll('.feed-shared-update-v2, .occludable-update, .comments-comment-item, .feed-shared-article, .feed-shared-post');
+            } else if (siteType === SITE_TYPES.REDDIT) {
+                // Combine selectors for both old and new Reddit
+                return document.querySelectorAll(`
+                article,
+                .thing,
+                .Comment,
+                .comment,
+                .Post,
+                .post,
+                div[data-testid="post-container"],
+                shreddit-post,
+                shreddit-comment,
+                .ListingLayout-post,
+                .scrollerItem,
+                div[data-testid="comment"],
+                div[data-testid*="feed-item"]
+            `);
             } else {
                 return document.querySelectorAll('article, .thing, .Comment, .comment, .Post, .post, div[data-testid="post-container"]');
             }
@@ -448,14 +489,9 @@
         }
 
         removeElement(element, siteType, text) {
-            element.classList.add('removed');
-            element.style.transition = 'opacity 0.3s ease-out';
-            element.style.opacity = '0';
-            
-            setTimeout(() => {
-                this.logRemoval(element, siteType, text);
-                element.remove();
-            }, ANIMATION_DURATION);
+            // Immediately remove the element without animation
+            this.logRemoval(element, siteType, text);
+            element.remove();
         }
     }
 
