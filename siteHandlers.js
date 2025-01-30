@@ -27,10 +27,21 @@ class SiteHandlers {
     findRedditElement(element) {
         let current = element;
         while (current && current !== document.body) {
+            // Handle new Reddit horizontal carousel items
+            if (current.tagName && current.tagName.toLowerCase() === 'faceplate-tracker') {
+                return current;
+            }
+            // Handle new Reddit carousel items
+            if (current.tagName && current.tagName.toLowerCase() === 'li' && 
+                current.closest('shreddit-gallery-carousel')) {
+                return current;
+            }
+            // Original Reddit selectors
             if (current.classList.contains('thing') || 
                 current.tagName === 'ARTICLE' ||
                 current.classList.contains('Comment') ||
-                current.classList.contains('Post')) {
+                current.classList.contains('Post') ||
+                (current.tagName === 'DIV' && current.getAttribute('data-testid') === 'post-container')) {
                 return current;
             }
             current = current.parentElement;
@@ -94,7 +105,19 @@ class SiteHandlers {
             return document.querySelectorAll('.feed-shared-update-v2, .feed-shared-post, .comments-comment-item, .feed-shared-article');
         } 
         else {
-            return document.querySelectorAll('article, .thing, .Comment, .comment, .Post, .post, div[data-testid="post-container"]');
+            // Updated Reddit selectors to include carousel items
+            return document.querySelectorAll(`
+                article, 
+                .thing, 
+                .Comment, 
+                .comment, 
+                .Post, 
+                .post, 
+                div[data-testid="post-container"],
+                shreddit-gallery-carousel li,
+                faceplate-tracker,
+                search-dynamic-id-cache-controller li
+            `);
         }
     }
 }
