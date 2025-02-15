@@ -6,7 +6,6 @@ class SiteHandlers {
         if (hostname.includes('reddit.com')) return SITE_TYPES.REDDIT;
         if (hostname.includes('youtube.com')) return SITE_TYPES.YOUTUBE;
         if (hostname.includes('linkedin.com')) return SITE_TYPES.LINKEDIN;
-        // Return the exact hostname instead of OTHER
         return hostname;
     }
 
@@ -26,22 +25,18 @@ class SiteHandlers {
     findRedditElement(element) {
         let current = element;
         while (current && current !== document.body) {
-            // Handle new Reddit horizontal carousel items
-            if (current.tagName && current.tagName.toLowerCase() === 'faceplate-tracker') {
-                return current;
-            }
-            // Handle new Reddit carousel items
-            if (current.tagName && current.tagName.toLowerCase() === 'li' && 
-                current.closest('shreddit-gallery-carousel')) {
-                return current;
-            }
-            // Original Reddit selectors
+            // Check for various Reddit post identifiers
             if (current.classList.contains('thing') || 
-                current.tagName === 'ARTICLE' ||
-                current.classList.contains('Comment') ||
+                current.hasAttribute('data-fullname') ||
                 current.classList.contains('Post') ||
-                (current.tagName === 'DIV' && current.getAttribute('data-testid') === 'post-container')) {
-                return current;
+                current.tagName === 'ARTICLE' ||
+                (current.tagName === 'DIV' && current.getAttribute('data-testid') === 'post-container') ||
+                current.classList.contains('sitetable') ||
+                (current.tagName && current.tagName.toLowerCase() === 'shreddit-post')) {
+                
+                // If this is a container with multiple posts, find the specific post
+                const postParent = current.closest('.thing, [data-fullname], .Post, article, [data-testid="post-container"]');
+                return postParent || current;
             }
             current = current.parentElement;
         }
@@ -103,21 +98,24 @@ class SiteHandlers {
         else if (siteType === SITE_TYPES.LINKEDIN) {
             return document.querySelectorAll('.feed-shared-update-v2, .feed-shared-post, .comments-comment-item, .feed-shared-article');
         } 
-        else {
-            // Updated Reddit selectors to include carousel items
+        else if (siteType === SITE_TYPES.REDDIT) {
+            // Expanded Reddit selectors to catch more post types
             return document.querySelectorAll(`
-                article, 
-                .thing, 
-                .Comment, 
-                .comment, 
-                .Post, 
-                .post, 
-                div[data-testid="post-container"],
-                shreddit-gallery-carousel li,
+                div.thing,
+                [data-fullname],
+                article.Post,
+                article[data-testid="post-container"],
+                div[data-testid="post"],
+                shreddit-post,
+                .sitetable > .thing,
                 faceplate-tracker,
-                search-dynamic-id-cache-controller li
+                .Post,
+                [data-test-id="post-content"],
+                .link,
+                shreddit-gallery-carousel li
             `);
         }
+        return document.querySelectorAll('*');
     }
 }
 

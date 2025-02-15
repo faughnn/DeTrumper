@@ -11,13 +11,14 @@ export class ContentProcessor {
     }
 
     findMatchingWord(text) {
-        // Convert text to lowercase and split into words
-        const words = text.toLowerCase().split(/\b/);
+        // Convert text to lowercase
+        const lowerText = text.toLowerCase();
         
-        // Find first matching word that matches exactly
-        return stateManager.wordsToRemove.find(targetWord => 
-            words.includes(targetWord.toLowerCase())
-        );
+        // Find first matching word using exact word boundaries
+        return stateManager.wordsToRemove.find(targetWord => {
+            const wordRegex = new RegExp(`\\b${targetWord.toLowerCase()}\\b`);
+            return wordRegex.test(lowerText);
+        });
     }
 
     logRemoval(element, siteType, text, matchedWord) {
@@ -55,22 +56,21 @@ export class ContentProcessor {
             logger.debug('Found elements:', elements.length);
 
             elements.forEach(element => {
-                if (element.hasAttribute('data-checked')) return;
-                
+                // Remove data-checked handling to ensure we check everything
                 const text = element.textContent;
-                const words = text.toLowerCase().split(/\b/);
-                const matchedWord = stateManager.wordsToRemove.find(word => 
-                    words.includes(word.toLowerCase())
-                );
+                const matchedWord = this.findMatchingWord(text);
                 
                 if (matchedWord) {
                     logger.debug('Found matching word in:', text.slice(0, 100));
                     const target = siteHandlers.findBestElementToRemove(element, siteType);
                     if (target && target !== document.body) {
-                        this.removeElement(target, siteType, text, matchedWord);
+                        try {
+                            this.removeElement(target, siteType, text, matchedWord);
+                        } catch (error) {
+                            logger.error('Failed to remove element:', error);
+                        }
                     }
                 }
-                element.setAttribute('data-checked', 'true');
             });
         } catch (error) {
             logger.error('Error in process:', error);

@@ -205,7 +205,6 @@
             if (hostname.includes('reddit.com')) return SITE_TYPES.REDDIT;
             if (hostname.includes('youtube.com')) return SITE_TYPES.YOUTUBE;
             if (hostname.includes('linkedin.com')) return SITE_TYPES.LINKEDIN;
-            // Return the exact hostname instead of OTHER
             return hostname;
         }
 
@@ -225,22 +224,18 @@
         findRedditElement(element) {
             let current = element;
             while (current && current !== document.body) {
-                // Handle new Reddit horizontal carousel items
-                if (current.tagName && current.tagName.toLowerCase() === 'faceplate-tracker') {
-                    return current;
-                }
-                // Handle new Reddit carousel items
-                if (current.tagName && current.tagName.toLowerCase() === 'li' && 
-                    current.closest('shreddit-gallery-carousel')) {
-                    return current;
-                }
-                // Original Reddit selectors
+                // Check for various Reddit post identifiers
                 if (current.classList.contains('thing') || 
-                    current.tagName === 'ARTICLE' ||
-                    current.classList.contains('Comment') ||
+                    current.hasAttribute('data-fullname') ||
                     current.classList.contains('Post') ||
-                    (current.tagName === 'DIV' && current.getAttribute('data-testid') === 'post-container')) {
-                    return current;
+                    current.tagName === 'ARTICLE' ||
+                    (current.tagName === 'DIV' && current.getAttribute('data-testid') === 'post-container') ||
+                    current.classList.contains('sitetable') ||
+                    (current.tagName && current.tagName.toLowerCase() === 'shreddit-post')) {
+                    
+                    // If this is a container with multiple posts, find the specific post
+                    const postParent = current.closest('.thing, [data-fullname], .Post, article, [data-testid="post-container"]');
+                    return postParent || current;
                 }
                 current = current.parentElement;
             }
@@ -302,21 +297,24 @@
             else if (siteType === SITE_TYPES.LINKEDIN) {
                 return document.querySelectorAll('.feed-shared-update-v2, .feed-shared-post, .comments-comment-item, .feed-shared-article');
             } 
-            else {
-                // Updated Reddit selectors to include carousel items
+            else if (siteType === SITE_TYPES.REDDIT) {
+                // Expanded Reddit selectors to catch more post types
                 return document.querySelectorAll(`
-                article, 
-                .thing, 
-                .Comment, 
-                .comment, 
-                .Post, 
-                .post, 
-                div[data-testid="post-container"],
-                shreddit-gallery-carousel li,
+                div.thing,
+                [data-fullname],
+                article.Post,
+                article[data-testid="post-container"],
+                div[data-testid="post"],
+                shreddit-post,
+                .sitetable > .thing,
                 faceplate-tracker,
-                search-dynamic-id-cache-controller li
+                .Post,
+                [data-test-id="post-content"],
+                .link,
+                shreddit-gallery-carousel li
             `);
             }
+            return document.querySelectorAll('*');
         }
     }
 
@@ -412,13 +410,14 @@
         }
 
         findMatchingWord(text) {
-            // Convert text to lowercase and split into words
-            const words = text.toLowerCase().split(/\b/);
+            // Convert text to lowercase
+            const lowerText = text.toLowerCase();
             
-            // Find first matching word that matches exactly
-            return stateManager.wordsToRemove.find(targetWord => 
-                words.includes(targetWord.toLowerCase())
-            );
+            // Find first matching word using exact word boundaries
+            return stateManager.wordsToRemove.find(targetWord => {
+                const wordRegex = new RegExp(`\\b${targetWord.toLowerCase()}\\b`);
+                return wordRegex.test(lowerText);
+            });
         }
 
         logRemoval(element, siteType, text, matchedWord) {
@@ -456,22 +455,21 @@
                 logger.debug('Found elements:', elements.length);
 
                 elements.forEach(element => {
-                    if (element.hasAttribute('data-checked')) return;
-                    
+                    // Remove data-checked handling to ensure we check everything
                     const text = element.textContent;
-                    const words = text.toLowerCase().split(/\b/);
-                    const matchedWord = stateManager.wordsToRemove.find(word => 
-                        words.includes(word.toLowerCase())
-                    );
+                    const matchedWord = this.findMatchingWord(text);
                     
                     if (matchedWord) {
                         logger.debug('Found matching word in:', text.slice(0, 100));
                         const target = siteHandlers.findBestElementToRemove(element, siteType);
                         if (target && target !== document.body) {
-                            this.removeElement(target, siteType, text, matchedWord);
+                            try {
+                                this.removeElement(target, siteType, text, matchedWord);
+                            } catch (error) {
+                                logger.error('Failed to remove element:', error);
+                            }
                         }
                     }
-                    element.setAttribute('data-checked', 'true');
                 });
             } catch (error) {
                 logger.error('Error in process:', error);
