@@ -11,8 +11,12 @@ export class ContentProcessor {
     }
 
     findMatchingWord(text) {
-        return stateManager.wordsToRemove.find(word => 
-            text.toLowerCase().includes(word.toLowerCase())
+        // Convert text to lowercase and split into words
+        const words = text.toLowerCase().split(/\b/);
+        
+        // Find first matching word that matches exactly
+        return stateManager.wordsToRemove.find(targetWord => 
+            words.includes(targetWord.toLowerCase())
         );
     }
 
@@ -54,8 +58,11 @@ export class ContentProcessor {
             elements.forEach(element => {
                 if (element.hasAttribute('data-checked')) return;
                 
-                const text = element.textContent.toLowerCase();
-                if (stateManager.wordsToRemove.some(word => text.includes(word.toLowerCase()))) {
+                const text = element.textContent;
+                const words = text.toLowerCase().split(/\b/);
+                if (stateManager.wordsToRemove.some(word => 
+                    words.includes(word.toLowerCase())
+                )) {
                     logger.debug('Found matching word in:', text.slice(0, 100));
                     const target = siteHandlers.findBestElementToRemove(element, siteType);
                     if (target && target !== document.body) {
