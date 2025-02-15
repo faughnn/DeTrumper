@@ -20,8 +20,7 @@ export class ContentProcessor {
         );
     }
 
-    logRemoval(element, siteType, text) {
-        const matchedWord = this.findMatchingWord(text);
+    logRemoval(element, siteType, text, matchedWord) {
         logger.info('Removed:', {
             site: siteType,
             type: element.tagName,
@@ -60,13 +59,15 @@ export class ContentProcessor {
                 
                 const text = element.textContent;
                 const words = text.toLowerCase().split(/\b/);
-                if (stateManager.wordsToRemove.some(word => 
+                const matchedWord = stateManager.wordsToRemove.find(word => 
                     words.includes(word.toLowerCase())
-                )) {
+                );
+                
+                if (matchedWord) {
                     logger.debug('Found matching word in:', text.slice(0, 100));
                     const target = siteHandlers.findBestElementToRemove(element, siteType);
                     if (target && target !== document.body) {
-                        this.removeElement(target, siteType, text);
+                        this.removeElement(target, siteType, text, matchedWord);
                     }
                 }
                 element.setAttribute('data-checked', 'true');
@@ -76,9 +77,9 @@ export class ContentProcessor {
         }
     }
 
-    removeElement(element, siteType, text) {
+    removeElement(element, siteType, text, matchedWord) {
         // Immediately remove the element without animation
-        this.logRemoval(element, siteType, text);
+        this.logRemoval(element, siteType, text, matchedWord);
         element.remove();
     }
 }

@@ -5,10 +5,9 @@ class SiteHandlers {
         const hostname = window.location.hostname;
         if (hostname.includes('reddit.com')) return SITE_TYPES.REDDIT;
         if (hostname.includes('youtube.com')) return SITE_TYPES.YOUTUBE;
-        if (hostname.includes('linkedin.com')) return 'linkedin';
-        // Instead of returning OTHER, let's identify the domain
-        const domain = hostname.replace('www.', '');
-        return domain || SITE_TYPES.OTHER;
+        if (hostname.includes('linkedin.com')) return SITE_TYPES.LINKEDIN;
+        // Return the exact hostname instead of OTHER
+        return hostname;
     }
 
     findBestElementToRemove(element, siteType) {
@@ -18,7 +17,7 @@ class SiteHandlers {
         else if (siteType === SITE_TYPES.YOUTUBE) {
             return this.findYoutubeElement(element);
         }
-        else if (siteType === 'linkedin') {
+        else if (siteType === SITE_TYPES.LINKEDIN) {
             return this.findLinkedInElement(element);
         }
         return element;
@@ -101,7 +100,7 @@ class SiteHandlers {
         if (siteType === SITE_TYPES.YOUTUBE) {
             return document.querySelectorAll('ytd-video-renderer, ytd-comment-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-rich-item-renderer');
         } 
-        else if (siteType === 'linkedin') {
+        else if (siteType === SITE_TYPES.LINKEDIN) {
             return document.querySelectorAll('.feed-shared-update-v2, .feed-shared-post, .comments-comment-item, .feed-shared-article');
         } 
         else {

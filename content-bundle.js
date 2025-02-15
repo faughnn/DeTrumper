@@ -204,10 +204,9 @@
             const hostname = window.location.hostname;
             if (hostname.includes('reddit.com')) return SITE_TYPES.REDDIT;
             if (hostname.includes('youtube.com')) return SITE_TYPES.YOUTUBE;
-            if (hostname.includes('linkedin.com')) return 'linkedin';
-            // Instead of returning OTHER, let's identify the domain
-            const domain = hostname.replace('www.', '');
-            return domain || SITE_TYPES.OTHER;
+            if (hostname.includes('linkedin.com')) return SITE_TYPES.LINKEDIN;
+            // Return the exact hostname instead of OTHER
+            return hostname;
         }
 
         findBestElementToRemove(element, siteType) {
@@ -217,7 +216,7 @@
             else if (siteType === SITE_TYPES.YOUTUBE) {
                 return this.findYoutubeElement(element);
             }
-            else if (siteType === 'linkedin') {
+            else if (siteType === SITE_TYPES.LINKEDIN) {
                 return this.findLinkedInElement(element);
             }
             return element;
@@ -300,7 +299,7 @@
             if (siteType === SITE_TYPES.YOUTUBE) {
                 return document.querySelectorAll('ytd-video-renderer, ytd-comment-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-rich-item-renderer');
             } 
-            else if (siteType === 'linkedin') {
+            else if (siteType === SITE_TYPES.LINKEDIN) {
                 return document.querySelectorAll('.feed-shared-update-v2, .feed-shared-post, .comments-comment-item, .feed-shared-article');
             } 
             else {
@@ -422,8 +421,7 @@
             );
         }
 
-        logRemoval(element, siteType, text) {
-            const matchedWord = this.findMatchingWord(text);
+        logRemoval(element, siteType, text, matchedWord) {
             logger.info('Removed:', {
                 site: siteType,
                 type: element.tagName,
@@ -462,13 +460,15 @@
                     
                     const text = element.textContent;
                     const words = text.toLowerCase().split(/\b/);
-                    if (stateManager.wordsToRemove.some(word => 
+                    const matchedWord = stateManager.wordsToRemove.find(word => 
                         words.includes(word.toLowerCase())
-                    )) {
+                    );
+                    
+                    if (matchedWord) {
                         logger.debug('Found matching word in:', text.slice(0, 100));
                         const target = siteHandlers.findBestElementToRemove(element, siteType);
                         if (target && target !== document.body) {
-                            this.removeElement(target, siteType, text);
+                            this.removeElement(target, siteType, text, matchedWord);
                         }
                     }
                     element.setAttribute('data-checked', 'true');
@@ -478,9 +478,9 @@
             }
         }
 
-        removeElement(element, siteType, text) {
+        removeElement(element, siteType, text, matchedWord) {
             // Immediately remove the element without animation
-            this.logRemoval(element, siteType, text);
+            this.logRemoval(element, siteType, text, matchedWord);
             element.remove();
         }
     }
