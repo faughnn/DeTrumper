@@ -7,6 +7,7 @@ import { logger } from './logger.js';
 import { statsManager } from './statsManager.js';
 
 // Immediately verify logging level
+logger.setLevel(LOG_LEVELS.DEBUG); // Temporarily boost logging for troubleshooting
 logger.debug('Current log level:', LOG_LEVEL);
 logger.info('Starting DeTrumper extension');
 
@@ -26,22 +27,51 @@ async function startExtension() {
         if (initialized) return;
         initialized = true;
 
-        const state = await stateManager.initialize();
+        // Create content processor first so it's available for site handlers
         contentProcessor = new ContentProcessor();
+        
+        // Then initialize state - this loads stored settings
+        const state = await stateManager.initialize();
+        logger.info('State initialized:', state);
+        
+        // Setup the observer
         observer = new Observer(contentProcessor);
         
+        // Setup message listeners
         stateManager.setupMessageListeners(contentProcessor);
         
+        // Check if we're on Reddit Old and log it
+        const isRedditOld = document.querySelector('#siteTable') !== null;
+        if (isRedditOld) {
+            logger.info('Detected Old Reddit interface');
+        }
+        
+        // Start processing
         if (document.body) {
-            logger.info('DeTrumper: Starting up on ' + siteRegistry.getSiteType());
+            const siteType = siteRegistry.getSiteType();
+            logger.info(`DeTrumper: Starting up on ${siteType}`);
             observer.setup();
+            
+            // Force an immediate process after setup
+            setTimeout(() => {
+                logger.info('Running initial content processing');
+                contentProcessor.process();
+            }, 100);
         } else {
             document.addEventListener('DOMContentLoaded', () => {
-                logger.info('DeTrumper: Starting up on ' + siteRegistry.getSiteType());
+                const siteType = siteRegistry.getSiteType();
+                logger.info(`DeTrumper: Starting up on ${siteType}`);
                 observer.setup();
+                
+                // Force an immediate process after setup
+                setTimeout(() => {
+                    logger.info('Running initial content processing');
+                    contentProcessor.process();
+                }, 100);
             });
         }
 
+        // Special handling for YouTube
         handleYouTubeInit(contentProcessor);
 
         // Add runtime disconnect listener
@@ -113,6 +143,7 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     }
 
     if (request.action === "updateWords") {
+        logger.info('Received updateWords message:', request);
         stateManager.isEnabled = request.isEnabled !== undefined ? request.isEnabled : true;
         
         if (!stateManager.isEnabled) {
@@ -121,6 +152,7 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
         
         chrome.storage.local.get(['blockedWords'], function(result) {
             stateManager.wordsToRemove = result.blockedWords || DEFAULT_WORDS;
+            logger.info('Updated words to remove:', stateManager.wordsToRemove);
             
             stateManager.stateChannel.postMessage({
                 type: STATE_TYPES.WORDS_UPDATED,
@@ -131,7 +163,15 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
             });
 
             if (stateManager.isEnabled && contentProcessor) {
+                logger.info('Triggering reprocessing after words update');
                 contentProcessor.process();
+                
+                // For Old Reddit, force the site handler to process as well
+                const currentHandler = siteRegistry.getCurrentSiteHandler();
+                if (currentHandler.name === 'reddit' && document.querySelector('#siteTable')) {
+                    logger.info('Force processing Old Reddit posts after update');
+                    currentHandler.processPosts(contentProcessor);
+                }
             }
         });
     }

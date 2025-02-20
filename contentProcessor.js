@@ -9,16 +9,53 @@ export class ContentProcessor {
     constructor() {
         this.removedCount = 0;
         this.lastCheck = 0;
+        this.processedTexts = new Set(); // Track processed content
+    }
+
+    // Utility function to escape special regex characters
+    escapeRegExp(string) {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    // Simple hash function for text content
+    hashText(text) {
+        let hash = 0;
+        for (let i = 0; i < Math.min(text.length, 1000); i++) {
+            const char = text.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32bit integer
+        }
+        return hash;
     }
 
     findMatchingWord(text) {
+        // Skip empty text
+        if (!text || text.trim() === '') return null;
+        
+        // Hash long text to avoid memory issues
+        const textHash = this.hashText(text);
+        if (this.processedTexts.has(textHash)) {
+            return null;
+        }
+        
+        // Add to processed set
+        this.processedTexts.add(textHash);
+        
         // Convert text to lowercase
         const lowerText = text.toLowerCase();
         
-        // Find first matching word using exact word boundaries
+        // Find first matching word using a more robust pattern
         return stateManager.wordsToRemove.find(targetWord => {
-            const wordRegex = new RegExp(`\\b${targetWord.toLowerCase()}\\b`);
-            return wordRegex.test(lowerText);
+            try {
+                // More robust pattern that handles various word boundaries
+                const safeWord = this.escapeRegExp(targetWord.toLowerCase());
+                const wordRegex = new RegExp(`(^|[^a-zA-Z0-9])${safeWord}([^a-zA-Z0-9]|$)`, 'i');
+                return wordRegex.test(lowerText);
+            } catch (error) {
+                logger.error('Regex error for word:', targetWord, error);
+                // Fallback to simple includes check if regex fails
+                return lowerText.includes(targetWord.toLowerCase());
+            }
         });
     }
 
