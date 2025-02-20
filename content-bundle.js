@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    const DEFAULT_WORDS$1 = ['trump', 'musk', 'elon', 'rogan'];
+    const DEFAULT_WORDS = ['trump', 'musk', 'elon', 'rogan'];
 
     const LOG_LEVELS = {
         ERROR: 0,   // Only errors and critical issues
@@ -12,18 +12,11 @@
 
     const LOG_LEVEL = LOG_LEVELS.ERROR; // Default log level
 
-    const STATE_TYPES$1 = {
+    const STATE_TYPES = {
         WORDS_UPDATED: 'WORDS_UPDATED',
         TOGGLE_STATE: 'TOGGLE_STATE',
         REQUEST_STATE: 'REQUEST_STATE',
         PROVIDE_STATE: 'PROVIDE_STATE'
-    };
-
-    const SITE_TYPES = {
-        REDDIT: 'reddit',
-        YOUTUBE: 'youtube',
-        LINKEDIN: 'linkedin',
-        OTHER: 'other'
     };
 
     const MUTATION_CHECK_INTERVAL = 100; // ms
@@ -70,7 +63,7 @@
         constructor() {
             this.stateChannel = new BroadcastChannel('detrumper-state-sync');
             this.isEnabled = true;
-            this.wordsToRemove = DEFAULT_WORDS$1;
+            this.wordsToRemove = DEFAULT_WORDS;
             this.removedCount = 0;
             this.lastCheck = 0;
             // Make the instance globally available
@@ -82,10 +75,10 @@
                 const state = await chrome.storage.local.get(['isEnabled', 'blockedWords', 'blockStats']);
                 
                 if (!state.blockedWords) {
-                    await chrome.storage.local.set({ blockedWords: DEFAULT_WORDS$1 });
+                    await chrome.storage.local.set({ blockedWords: DEFAULT_WORDS });
                 }
 
-                this.wordsToRemove = state.blockedWords || DEFAULT_WORDS$1;
+                this.wordsToRemove = state.blockedWords || DEFAULT_WORDS;
                 this.isEnabled = state.isEnabled !== undefined ? state.isEnabled : true;
 
                 this.broadcastStateRequest();
@@ -109,14 +102,14 @@
                 if (tabId === chrome.runtime.id) return;
 
                 switch (type) {
-                    case STATE_TYPES$1.WORDS_UPDATED:
+                    case STATE_TYPES.WORDS_UPDATED:
                         this.wordsToRemove = payload.words;
                         if (this.isEnabled) {
                             contentProcessor.process();
                         }
                         break;
 
-                    case STATE_TYPES$1.TOGGLE_STATE:
+                    case STATE_TYPES.TOGGLE_STATE:
                         this.isEnabled = payload.isEnabled;
                         if (!this.isEnabled) {
                             statsManager.resetSessionStats();
@@ -125,7 +118,7 @@
                         }
                         break;
 
-                    case STATE_TYPES$1.REQUEST_STATE:
+                    case STATE_TYPES.REQUEST_STATE:
                         this.respondWithState();
                         break;
                 }
@@ -134,7 +127,7 @@
 
         broadcastStateRequest() {
             this.stateChannel.postMessage({
-                type: STATE_TYPES$1.REQUEST_STATE,
+                type: STATE_TYPES.REQUEST_STATE,
                 tabId: chrome.runtime.id
             });
         }
@@ -145,7 +138,7 @@
 
         respondWithState() {
             this.stateChannel.postMessage({
-                type: STATE_TYPES$1.PROVIDE_STATE,
+                type: STATE_TYPES.PROVIDE_STATE,
                 payload: {
                     words: this.wordsToRemove,
                     isEnabled: this.isEnabled
@@ -157,7 +150,7 @@
         getDefaultState() {
             return {
                 isEnabled: true,
-                wordsToRemove: DEFAULT_WORDS$1,
+                wordsToRemove: DEFAULT_WORDS,
                 removedCount: 0,
                 lastCheck: 0
             };
@@ -199,138 +192,230 @@
         }
     }
 
-    class SiteHandlers {
-        getSiteType() {
-            const hostname = window.location.hostname;
-            if (hostname.includes('reddit.com')) return SITE_TYPES.REDDIT;
-            if (hostname.includes('youtube.com')) return SITE_TYPES.YOUTUBE;
-            if (hostname.includes('linkedin.com')) return SITE_TYPES.LINKEDIN;
-            return hostname;
-        }
+    // sites/base.js
 
-        findBestElementToRemove(element, siteType) {
-            if (siteType === SITE_TYPES.REDDIT) {
-                return this.findRedditElement(element);
-            } 
-            else if (siteType === SITE_TYPES.YOUTUBE) {
-                return this.findYoutubeElement(element);
-            }
-            else if (siteType === SITE_TYPES.LINKEDIN) {
-                return this.findLinkedInElement(element);
-            }
-            return element;
-        }
+    class BaseSiteHandler {
+      constructor() {
+        this.name = 'base';
+      }
 
-        findRedditElement(element) {
-            let current = element;
-            while (current && current !== document.body) {
-                // Check for various Reddit post identifiers
-                if (current.classList.contains('thing') || 
-                    current.hasAttribute('data-fullname') ||
-                    current.classList.contains('Post') ||
-                    current.tagName === 'ARTICLE' ||
-                    (current.tagName === 'DIV' && current.getAttribute('data-testid') === 'post-container') ||
-                    current.classList.contains('sitetable') ||
-                    (current.tagName && current.tagName.toLowerCase() === 'shreddit-post')) {
-                    
-                    // If this is a container with multiple posts, find the specific post
-                    const postParent = current.closest('.thing, [data-fullname], .Post, article, [data-testid="post-container"]');
-                    return postParent || current;
-                }
-                current = current.parentElement;
-            }
-            return element;
-        }
-
-        findYoutubeElement(element) {
-            let current = element;
-            while (current && current !== document.body) {
-                if (current.tagName && (
-                    current.tagName.startsWith('YTD-') || 
-                    (current.id === 'content' && current.closest('#primary'))
-                )) {
-                    return current;
-                }
-                current = current.parentElement;
-            }
-            return element;
-        }
-
-        findLinkedInElement(element) {
-            let current = element;
-            while (current && current !== document.body) {
-                if (current.classList.contains('feed-shared-update-v2') || 
-                    current.classList.contains('feed-shared-post') ||
-                    current.classList.contains('comments-comment-item') ||
-                    current.classList.contains('feed-shared-article')) {
-                    return current;
-                }
-                current = current.parentElement;
-            }
-            return element;
-        }
-
-        handleLayoutAdjustment(siteType) {
-            if (siteType === SITE_TYPES.REDDIT) {
-                this.adjustRedditLayout();
-            }
-        }
-
-        adjustRedditLayout() {
-            const mainContainer = document.querySelector('.ListingLayout-backgroundContainer');
-            if (mainContainer) {
-                mainContainer.style.maxWidth = 'none';
-                mainContainer.style.padding = '0 24px';
-            }
-
-            const contentContainer = document.querySelector('.ListingLayout-contentContainer');
-            if (contentContainer) {
-                contentContainer.style.margin = '0 auto';
-                contentContainer.style.maxWidth = '1200px';
-            }
-        }
-
-        getElementsToCheck(siteType) {
-            if (siteType === SITE_TYPES.YOUTUBE) {
-                return document.querySelectorAll('ytd-video-renderer, ytd-comment-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-rich-item-renderer');
-            } 
-            else if (siteType === SITE_TYPES.LINKEDIN) {
-                return document.querySelectorAll('.feed-shared-update-v2, .feed-shared-post, .comments-comment-item, .feed-shared-article');
-            } 
-            else if (siteType === SITE_TYPES.REDDIT) {
-                // Expanded Reddit selectors to catch more post types
-                return document.querySelectorAll(`
-                div.thing,
-                [data-fullname],
-                article.Post,
-                article[data-testid="post-container"],
-                div[data-testid="post"],
-                shreddit-post,
-                .sitetable > .thing,
-                faceplate-tracker,
-                .Post,
-                [data-test-id="post-content"],
-                .link,
-                shreddit-gallery-carousel li
-            `);
-            }
-            return document.querySelectorAll('*');
-        }
+      // Returns true if this handler can handle the current site
+      canHandle(hostname) { 
+        return false; // Base handler doesn't handle any site
+      }
+      
+      // Gets all elements to check for keywords
+      getElementsToCheck() { 
+        return document.querySelectorAll('*');
+      }
+      
+      // Finds the parent element to remove
+      findBestElementToRemove(element) { 
+        return element;
+      }
+      
+      // Site-specific removal logic
+      removeElement(element, matchedWord, logCallback) { 
+        logCallback(element, this.name, element.textContent, matchedWord);
+        element.remove();
+      }
+      
+      // Optional: Site-specific layout adjustments after removal
+      handleLayoutAdjustment() { 
+        // Default empty implementation
+      }
     }
 
-    const siteHandlers = new SiteHandlers();
+    // sites/reddit.js
+
+    class RedditHandler extends BaseSiteHandler {
+      constructor() {
+        super();
+        this.name = 'reddit';
+      }
+
+      canHandle(hostname) {
+        return hostname.includes('reddit.com');
+      }
+
+      getElementsToCheck() {
+        // Expanded Reddit selectors to catch more post types
+        return document.querySelectorAll(`
+      div.thing,
+      [data-fullname],
+      article.Post,
+      article[data-testid="post-container"],
+      div[data-testid="post"],
+      shreddit-post,
+      .sitetable > .thing,
+      faceplate-tracker,
+      .Post,
+      [data-test-id="post-content"],
+      .link,
+      shreddit-gallery-carousel li
+    `);
+      }
+
+      findBestElementToRemove(element) {
+        let current = element;
+        while (current && current !== document.body) {
+          // Check for various Reddit post identifiers
+          if (current.classList.contains('thing') || 
+              current.hasAttribute('data-fullname') ||
+              current.classList.contains('Post') ||
+              current.tagName === 'ARTICLE' ||
+              (current.tagName === 'DIV' && current.getAttribute('data-testid') === 'post-container') ||
+              current.classList.contains('sitetable') ||
+              (current.tagName && current.tagName.toLowerCase() === 'shreddit-post')) {
+              
+              // If this is a container with multiple posts, find the specific post
+              const postParent = current.closest('.thing, [data-fullname], .Post, article, [data-testid="post-container"]');
+              return postParent || current;
+          }
+          current = current.parentElement;
+        }
+        return element;
+      }
+
+      handleLayoutAdjustment() {
+        const mainContainer = document.querySelector('.ListingLayout-backgroundContainer');
+        if (mainContainer) {
+          mainContainer.style.maxWidth = 'none';
+          mainContainer.style.padding = '0 24px';
+        }
+
+        const contentContainer = document.querySelector('.ListingLayout-contentContainer');
+        if (contentContainer) {
+          contentContainer.style.margin = '0 auto';
+          contentContainer.style.maxWidth = '1200px';
+        }
+      }
+    }
+
+    // sites/youtube.js
+
+    class YouTubeHandler extends BaseSiteHandler {
+      constructor() {
+        super();
+        this.name = 'youtube';
+      }
+
+      canHandle(hostname) {
+        return hostname.includes('youtube.com');
+      }
+
+      getElementsToCheck() {
+        return document.querySelectorAll('ytd-video-renderer, ytd-comment-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-rich-item-renderer');
+      }
+
+      findBestElementToRemove(element) {
+        let current = element;
+        while (current && current !== document.body) {
+          if (current.tagName && (
+            current.tagName.startsWith('YTD-') || 
+            (current.id === 'content' && current.closest('#primary'))
+          )) {
+            return current;
+          }
+          current = current.parentElement;
+        }
+        return element;
+      }
+    }
+
+    // sites/linkedin.js
+
+    class LinkedInHandler extends BaseSiteHandler {
+      constructor() {
+        super();
+        this.name = 'linkedin';
+      }
+
+      canHandle(hostname) {
+        return hostname.includes('linkedin.com');
+      }
+
+      getElementsToCheck() {
+        return document.querySelectorAll('.feed-shared-update-v2, .feed-shared-post, .comments-comment-item, .feed-shared-article');
+      }
+
+      findBestElementToRemove(element) {
+        let current = element;
+        while (current && current !== document.body) {
+          if (current.classList.contains('feed-shared-update-v2') || 
+              current.classList.contains('feed-shared-post') ||
+              current.classList.contains('comments-comment-item') ||
+              current.classList.contains('feed-shared-article')) {
+            return current;
+          }
+          current = current.parentElement;
+        }
+        return element;
+      }
+    }
+
+    // siteRegistry.js
+
+    class SiteRegistry {
+      constructor() {
+        this.handlers = [
+          new RedditHandler(),
+          new YouTubeHandler(),
+          new LinkedInHandler()
+        ];
+        this.fallbackHandler = new BaseSiteHandler();
+        this.currentHandler = null;
+      }
+
+      getCurrentSiteHandler() {
+        if (!this.currentHandler) {
+          const hostname = window.location.hostname;
+          this.currentHandler = this.handlers.find(handler => handler.canHandle(hostname)) || this.fallbackHandler;
+          logger.info(`Using ${this.currentHandler.name} handler for ${hostname}`);
+        }
+        return this.currentHandler;
+      }
+
+      getSiteType() {
+        const handler = this.getCurrentSiteHandler();
+        return handler.name;
+      }
+
+      getElementsToCheck() {
+        return this.getCurrentSiteHandler().getElementsToCheck();
+      }
+
+      findBestElementToRemove(element) {
+        return this.getCurrentSiteHandler().findBestElementToRemove(element);
+      }
+
+      removeElement(element, matchedWord, logCallback) {
+        return this.getCurrentSiteHandler().removeElement(element, matchedWord, logCallback);
+      }
+
+      handleLayoutAdjustment() {
+        return this.getCurrentSiteHandler().handleLayoutAdjustment();
+      }
+
+      // Register a new handler
+      registerHandler(handler) {
+        this.handlers.push(handler);
+      }
+    }
+
+    const siteRegistry = new SiteRegistry();
 
     class SharedState {
         constructor() {
             this.isEnabled = true;
-            this.wordsToRemove = DEFAULT_WORDS$1;
+            this.wordsToRemove = DEFAULT_WORDS;
         }
 
         async getState() {
             const result = await chrome.storage.local.get(['isEnabled', 'blockedWords']);
             return {
                 isEnabled: result.isEnabled !== undefined ? result.isEnabled : true,
-                wordsToRemove: result.blockedWords || DEFAULT_WORDS$1
+                wordsToRemove: result.blockedWords || DEFAULT_WORDS
             };
         }
 
@@ -403,6 +488,8 @@
 
     const statsManager$1 = new StatsManager();
 
+    // contentProcessor.js
+
     class ContentProcessor {
         constructor() {
             this.removedCount = 0;
@@ -444,27 +531,26 @@
                 if (now - this.lastCheck < MUTATION_CHECK_INTERVAL) return;
                 this.lastCheck = now;
 
-                const siteType = siteHandlers.getSiteType();
+                const siteType = siteRegistry.getSiteType();
                 logger.debug('Site type:', siteType);
                 
-                if (siteType === 'other') return;
+                if (siteType === 'base') return;
 
-                siteHandlers.handleLayoutAdjustment(siteType);
+                siteRegistry.handleLayoutAdjustment();
 
-                const elements = siteHandlers.getElementsToCheck(siteType);
+                const elements = siteRegistry.getElementsToCheck();
                 logger.debug('Found elements:', elements.length);
 
                 elements.forEach(element => {
-                    // Remove data-checked handling to ensure we check everything
                     const text = element.textContent;
                     const matchedWord = this.findMatchingWord(text);
                     
                     if (matchedWord) {
                         logger.debug('Found matching word in:', text.slice(0, 100));
-                        const target = siteHandlers.findBestElementToRemove(element, siteType);
+                        const target = siteRegistry.findBestElementToRemove(element);
                         if (target && target !== document.body) {
                             try {
-                                this.removeElement(target, siteType, text, matchedWord);
+                                siteRegistry.removeElement(target, matchedWord, this.logRemoval.bind(this));
                             } catch (error) {
                                 logger.error('Failed to remove element:', error);
                             }
@@ -474,12 +560,6 @@
             } catch (error) {
                 logger.error('Error in process:', error);
             }
-        }
-
-        removeElement(element, siteType, text, matchedWord) {
-            // Immediately remove the element without animation
-            this.logRemoval(element, siteType, text, matchedWord);
-            element.remove();
         }
     }
 
@@ -510,11 +590,11 @@
             stateManager.setupMessageListeners(contentProcessor);
             
             if (document.body) {
-                logger.info('DeTrumper: Starting up on ' + siteHandlers.getSiteType());
+                logger.info('DeTrumper: Starting up on ' + siteRegistry.getSiteType());
                 observer.setup();
             } else {
                 document.addEventListener('DOMContentLoaded', () => {
-                    logger.info('DeTrumper: Starting up on ' + siteHandlers.getSiteType());
+                    logger.info('DeTrumper: Starting up on ' + siteRegistry.getSiteType());
                     observer.setup();
                 });
             }
@@ -541,7 +621,7 @@
     }
 
     function handleYouTubeInit(contentProcessor) {
-        if (siteHandlers.getSiteType() === 'youtube') {
+        if (siteRegistry.getSiteType() === 'youtube') {
             let loadCheckInterval = setInterval(() => {
                 if (!chrome.runtime.id) {
                     clearInterval(loadCheckInterval);
@@ -593,7 +673,7 @@
             stateManager.isEnabled = request.isEnabled !== undefined ? request.isEnabled : true;
             
             if (!stateManager.isEnabled) {
-                statsManager.resetSessionStats();
+                statsManager$1.resetSessionStats();
             }
             
             chrome.storage.local.get(['blockedWords'], function(result) {

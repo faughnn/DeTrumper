@@ -1,5 +1,6 @@
+// contentProcessor.js
 import { MUTATION_CHECK_INTERVAL } from './config.js';
-import { siteHandlers } from './siteHandlers.js';
+import { siteRegistry } from './siteRegistry.js';
 import { statsManager } from './statsManager.js';
 import { stateManager } from './stateManager.js';
 import { logger } from './logger.js';
@@ -45,27 +46,26 @@ export class ContentProcessor {
             if (now - this.lastCheck < MUTATION_CHECK_INTERVAL) return;
             this.lastCheck = now;
 
-            const siteType = siteHandlers.getSiteType();
+            const siteType = siteRegistry.getSiteType();
             logger.debug('Site type:', siteType);
             
-            if (siteType === 'other') return;
+            if (siteType === 'base') return;
 
-            siteHandlers.handleLayoutAdjustment(siteType);
+            siteRegistry.handleLayoutAdjustment();
 
-            const elements = siteHandlers.getElementsToCheck(siteType);
+            const elements = siteRegistry.getElementsToCheck();
             logger.debug('Found elements:', elements.length);
 
             elements.forEach(element => {
-                // Remove data-checked handling to ensure we check everything
                 const text = element.textContent;
                 const matchedWord = this.findMatchingWord(text);
                 
                 if (matchedWord) {
                     logger.debug('Found matching word in:', text.slice(0, 100));
-                    const target = siteHandlers.findBestElementToRemove(element, siteType);
+                    const target = siteRegistry.findBestElementToRemove(element);
                     if (target && target !== document.body) {
                         try {
-                            this.removeElement(target, siteType, text, matchedWord);
+                            siteRegistry.removeElement(target, matchedWord, this.logRemoval.bind(this));
                         } catch (error) {
                             logger.error('Failed to remove element:', error);
                         }
@@ -75,11 +75,5 @@ export class ContentProcessor {
         } catch (error) {
             logger.error('Error in process:', error);
         }
-    }
-
-    removeElement(element, siteType, text, matchedWord) {
-        // Immediately remove the element without animation
-        this.logRemoval(element, siteType, text, matchedWord);
-        element.remove();
     }
 }

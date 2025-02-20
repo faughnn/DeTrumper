@@ -1,9 +1,10 @@
 import { stateManager } from './stateManager.js';
 import { Observer } from './observer.js';
 import { ContentProcessor } from './contentProcessor.js';
-import { YOUTUBE_CHECK_TIMEOUT, LOG_LEVEL, LOG_LEVELS } from './config.js';
-import { siteHandlers } from './siteHandlers.js';
+import { YOUTUBE_CHECK_TIMEOUT, LOG_LEVEL, LOG_LEVELS, DEFAULT_WORDS, STATE_TYPES } from './config.js';
+import { siteRegistry } from './siteRegistry.js';
 import { logger } from './logger.js';
+import { statsManager } from './statsManager.js';
 
 // Immediately verify logging level
 logger.debug('Current log level:', LOG_LEVEL);
@@ -32,11 +33,11 @@ async function startExtension() {
         stateManager.setupMessageListeners(contentProcessor);
         
         if (document.body) {
-            logger.info('DeTrumper: Starting up on ' + siteHandlers.getSiteType());
+            logger.info('DeTrumper: Starting up on ' + siteRegistry.getSiteType());
             observer.setup();
         } else {
             document.addEventListener('DOMContentLoaded', () => {
-                logger.info('DeTrumper: Starting up on ' + siteHandlers.getSiteType());
+                logger.info('DeTrumper: Starting up on ' + siteRegistry.getSiteType());
                 observer.setup();
             });
         }
@@ -63,7 +64,7 @@ async function startExtension() {
 }
 
 function handleYouTubeInit(contentProcessor) {
-    if (siteHandlers.getSiteType() === 'youtube') {
+    if (siteRegistry.getSiteType() === 'youtube') {
         let loadCheckInterval = setInterval(() => {
             if (!chrome.runtime.id) {
                 clearInterval(loadCheckInterval);
