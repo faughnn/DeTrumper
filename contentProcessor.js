@@ -53,6 +53,14 @@ export class ContentProcessor {
 
             siteRegistry.handleLayoutAdjustment();
 
+            // Check if the site handler has a custom content processing method
+            const currentHandler = siteRegistry.getCurrentSiteHandler();
+            if (currentHandler.handleContentProcessing && currentHandler.handleContentProcessing(this)) {
+                // If the handler returns true, it has handled the processing, so we can return
+                return;
+            }
+
+            // Standard processing for sites without custom handlers
             const elements = siteRegistry.getElementsToCheck();
             logger.debug('Found elements:', elements.length);
 
