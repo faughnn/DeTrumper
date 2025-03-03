@@ -2,6 +2,7 @@ import { LOG_LEVELS, LOG_LEVEL } from './config.js';
 
 class Logger {
     constructor() {
+        // Restored to original behavior - use LOG_LEVEL from config
         this.currentLevel = LOG_LEVEL;
     }
 

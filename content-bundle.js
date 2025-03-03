@@ -25,6 +25,7 @@
 
     class Logger {
         constructor() {
+            // Restored to original behavior - use LOG_LEVEL from config
             this.currentLevel = LOG_LEVEL;
         }
 
@@ -235,10 +236,9 @@
         this.processedElements = new Set();
         this.lastProcessedCount = 0;
         this.lastHeight = 0;
-        this.scrollMonitorInterval = null;
         this.domObserver = null;
-        this.processingActive = false;
-        this.pageObserver = null; // New observer specifically for page changes
+        this.lastDocumentHeight = 0;
+        this.heightCheckInterval = null;
       }
 
       canHandle(hostname) {
@@ -310,121 +310,29 @@
         if (document.querySelector('#siteTable')) {
           logger.info('Setting up specialized handler for Old Reddit');
           
-          // Set up a direct DOM observer for the #siteTable
-          this.setupDomObserver(contentProcessor);
+          // Initialize last document height
+          this.lastDocumentHeight = document.documentElement.scrollHeight;
           
-          // Set up an aggressive polling interval as backup
-          if (!this.scrollMonitorInterval) {
-            this.scrollMonitorInterval = setInterval(() => {
+          // CHANGED: Instead of using DOM observers, check for height changes 
+          // which indicate new content was loaded (e.g. through infinite scroll)
+          this.heightCheckInterval = setInterval(() => {
+            const currentHeight = document.documentElement.scrollHeight;
+            if (currentHeight > this.lastDocumentHeight) {
+              logger.info('Page height increased, likely new content loaded');
+              this.lastDocumentHeight = currentHeight;
               this.processPosts(contentProcessor);
-            }, 100); // Very frequent checks
-          }
-          
-          // Extra measure: process on scroll events
-          window.addEventListener('scroll', () => {
-            // Debounce the scroll event to avoid excessive processing
-            if (!this.processingActive) {
-              this.processingActive = true;
-              // Use requestAnimationFrame to ensure we don't block the UI
-              requestAnimationFrame(() => {
-                this.processPosts(contentProcessor);
-                setTimeout(() => {
-                  this.processingActive = false;
-                }, 50);
-              });
             }
-          }, { passive: true });
-          
-          // Set up page-change observer for infinite scroll
-          this.setupPageChangeObserver(contentProcessor);
+          }, 1000);
           
           // Force an initial processing
           setTimeout(() => {
             this.processPosts(contentProcessor);
-          }, 0);
-          
-          // Re-process periodically while viewing the page
-          setInterval(() => {
-            this.processPosts(contentProcessor);
-          }, 2000);
+          }, 100);
           
           return true; // We're handling this site
         }
         
         return false; // Let standard processing handle it
-      }
-
-      // Set up a DOM observer specifically watching for new Reddit posts
-      setupDomObserver(contentProcessor) {
-        const siteTable = document.querySelector('#siteTable');
-        
-        if (siteTable && !this.domObserver) {
-          logger.info('Setting up DOM observer for #siteTable');
-          
-          this.domObserver = new MutationObserver((mutations) => {
-            logger.debug('DOM mutation detected in #siteTable, processing posts');
-            this.processPosts(contentProcessor);
-          });
-          
-          this.domObserver.observe(siteTable, {
-            childList: true,
-            subtree: true,
-            attributes: false,
-            characterData: false
-          });
-          
-          logger.info('DOM observer set up successfully');
-        }
-      }
-
-      // NEW FUNCTION: Observe page changes for infinite scroll
-      setupPageChangeObserver(contentProcessor) {
-        if (!this.pageObserver) {
-          logger.info('Setting up page change observer for infinite scroll');
-          
-          // Observe the entire document body for new page markers or content containers
-          this.pageObserver = new MutationObserver((mutations) => {
-            // Check for relevant mutations that might indicate new content
-            for (const mutation of mutations) {
-              if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                // Inspect added nodes for things that look like Reddit content
-                for (const node of mutation.addedNodes) {
-                  if (node.nodeType === Node.ELEMENT_NODE) {
-                    // Check if this is a new siteTable or contains Reddit posts
-                    if (node.id === 'siteTable' || 
-                        node.classList && node.classList.contains('siteTable') ||
-                        node.querySelector && node.querySelector('.thing, .sitetable, .link')) {
-                      
-                      logger.info('New page content detected in infinite scroll');
-                      
-                      // Process immediately and then again after a delay
-                      // to catch any lazy-loaded content
-                      this.processPosts(contentProcessor);
-                      
-                      // Process again after a short delay to catch any more content
-                      setTimeout(() => {
-                        this.processPosts(contentProcessor);
-                      }, 500);
-                      
-                      // And again after a longer delay
-                      setTimeout(() => {
-                        this.processPosts(contentProcessor);
-                      }, 1500);
-                    }
-                  }
-                }
-              }
-            }
-          });
-          
-          // Observe the entire document body for the highest chance of catching new pages
-          this.pageObserver.observe(document.body, {
-            childList: true,
-            subtree: true
-          });
-          
-          logger.info('Page change observer set up successfully');
-        }
       }
 
       // Enhanced version that thoroughly processes all posts
@@ -447,16 +355,10 @@
           // This is critical for infinite scroll as it adds different kinds of containers
           const allPosts = document.querySelectorAll('#siteTable > .thing, .sitetable > .thing, .linklisting > .thing, .link, .entry');
           
-          // Keep track of document height to detect changes
-          const currentHeight = document.documentElement.scrollHeight;
-          if (currentHeight !== this.lastHeight) {
-            logger.debug('Document height changed, forcing thorough reprocessing');
-            this.lastHeight = currentHeight;
-            // Clear some of the processed cache to ensure we recheck everything
-            if (this.processedElements.size > 5000) {
-              logger.debug('Clearing processed elements cache (was too large)');
-              this.processedElements.clear();
-            }
+          // Skip if no new posts since last check
+          if (allPosts.length <= this.lastProcessedCount) {
+            logger.debug('No new posts detected, skipping processing');
+            return;
           }
           
           logger.debug(`Processing ${allPosts.length} posts (${this.processedElements.size} already processed)`);
@@ -479,8 +381,10 @@
             
             const elementId = postId || post.getAttribute('data-detrumper-id');
             
-            // Always check posts, even if we've seen them before
-            // This handles cases where content loads after the container
+            // Skip posts we've already processed
+            if (elementId && this.processedElements.has(elementId)) {
+              return;
+            }
             
             // 1. Check the title
             const titleElement = post.querySelector('a.title');
@@ -496,8 +400,8 @@
                   post.style.display = 'none';
                   post.classList.add('removed-by-detrumper');
                   
-                  // Only log if we haven't already processed this post
-                  if (elementId && !this.processedElements.has(elementId)) {
+                  // Mark as processed
+                  if (elementId) {
                     this.processedElements.add(elementId);
                     contentProcessor.logRemoval(post, this.name, titleText, word);
                   }
@@ -520,8 +424,8 @@
                   post.style.display = 'none';
                   post.classList.add('removed-by-detrumper');
                   
-                  // Only log if we haven't already processed this post
-                  if (elementId && !this.processedElements.has(elementId)) {
+                  // Mark as processed
+                  if (elementId) {
                     this.processedElements.add(elementId);
                     contentProcessor.logRemoval(post, this.name, contentText.substring(0, 100), word);
                   }
@@ -659,27 +563,58 @@
 
     class SiteRegistry {
       constructor() {
-        this.handlers = [
-          new RedditHandler(),
-          new YouTubeHandler(),
-          new LinkedInHandler()
-        ];
+        this.handlers = {
+          reddit: new RedditHandler(),
+          youtube: new YouTubeHandler(),
+          linkedin: new LinkedInHandler()
+        };
         this.fallbackHandler = new BaseSiteHandler();
         this.currentHandler = null;
+        this.currentSiteType = null;
+        this.isInitialized = false;
+      }
+
+      initialize() {
+        if (this.isInitialized) return;
+        
+        const hostname = window.location.hostname;
+        
+        // Match the hostname to determine the correct handler
+        if (hostname.includes('reddit.com')) {
+          this.currentSiteType = 'reddit';
+          this.currentHandler = this.handlers.reddit;
+        } else if (hostname.includes('youtube.com')) {
+          this.currentSiteType = 'youtube';
+          this.currentHandler = this.handlers.youtube;
+        } else if (hostname.includes('linkedin.com')) {
+          this.currentSiteType = 'linkedin';
+          this.currentHandler = this.handlers.linkedin;
+        } else {
+          this.currentSiteType = 'base';
+          this.currentHandler = this.fallbackHandler;
+        }
+        
+        logger.info(`Using ${this.currentSiteType} handler for ${hostname}`);
+        this.isInitialized = true;
       }
 
       getCurrentSiteHandler() {
-        if (!this.currentHandler) {
-          const hostname = window.location.hostname;
-          this.currentHandler = this.handlers.find(handler => handler.canHandle(hostname)) || this.fallbackHandler;
-          logger.info(`Using ${this.currentHandler.name} handler for ${hostname}`);
+        // Ensure registry is initialized
+        if (!this.isInitialized) {
+          this.initialize();
         }
+        
         return this.currentHandler;
       }
 
       getSiteType() {
-        const handler = this.getCurrentSiteHandler();
-        return handler.name;
+        // Ensure registry is initialized
+        if (!this.isInitialized) {
+          this.initialize();
+        }
+        
+        logger.debug(`Retrieved cached site type: ${this.currentSiteType}`);
+        return this.currentSiteType;
       }
 
       getElementsToCheck() {
@@ -696,11 +631,6 @@
 
       handleLayoutAdjustment() {
         return this.getCurrentSiteHandler().handleLayoutAdjustment();
-      }
-
-      // Register a new handler
-      registerHandler(handler) {
-        this.handlers.push(handler);
       }
     }
 
@@ -733,43 +663,117 @@
     class StatsManager {
         constructor() {
             this.sessionStats = this.getInitialStats();
+            this.pendingUpdates = 0;
+            this.lastStorageUpdate = 0;
+            this.storageBatch = this.getInitialStats(); // Initialize with empty stats
+            this.BATCH_THRESHOLD = 10; // Number of updates to batch before writing
+            this.UPDATE_INTERVAL = 5000; // Milliseconds between forced updates
+            this.isInitialized = false;
         }
 
         async updateStats(matchedWord, siteType) {
             logger.debug('Updating stats for:', matchedWord, 'on site:', siteType);
             
-            const state = await sharedState.getState();
-            if (!state.isEnabled) {
-                logger.info('Stats update skipped - extension disabled');
-                return;
-            }
-            
             try {
-                const result = await chrome.storage.local.get(['blockStats']);
-                logger.debug('Current stored stats:', result.blockStats);
+                const state = await sharedState.getState();
+                if (!state.isEnabled) {
+                    logger.info('Stats update skipped - extension disabled');
+                    return;
+                }
                 
-                let stats = result.blockStats || this.getInitialStats();
-
-                stats.totalBlocked += 1;
-                stats.siteStats[siteType] = (stats.siteStats[siteType] || 0) + 1;
-                stats.wordStats[matchedWord] = (stats.wordStats[matchedWord] || 0) + 1;
-
-                logger.debug('Saving updated stats:', stats);
-                await chrome.storage.local.set({ blockStats: stats });
+                // Ensure we have a valid batch object
+                if (!this.storageBatch || !this.isInitialized) {
+                    await this.initBatchUpdate();
+                }
                 
+                // Double-check that we have a valid storage batch after initialization
+                if (!this.storageBatch) {
+                    logger.warn('Unable to initialize stats storage, using default');
+                    this.storageBatch = this.getInitialStats();
+                }
+                
+                // Update in-memory batch with null checks
+                this.storageBatch.totalBlocked = (this.storageBatch.totalBlocked || 0) + 1;
+                
+                // Ensure objects exist
+                if (!this.storageBatch.siteStats) this.storageBatch.siteStats = {};
+                if (!this.storageBatch.wordStats) this.storageBatch.wordStats = {};
+                
+                this.storageBatch.siteStats[siteType] = (this.storageBatch.siteStats[siteType] || 0) + 1;
+                this.storageBatch.wordStats[matchedWord] = (this.storageBatch.wordStats[matchedWord] || 0) + 1;
+                
+                this.pendingUpdates++;
+                
+                // Update session stats
                 this.updateSessionStats(matchedWord, siteType);
-                logger.debug('Session stats updated:', this.sessionStats);
+                
+                // Decide whether to commit to storage now
+                const now = Date.now();
+                if (this.pendingUpdates >= this.BATCH_THRESHOLD || now - this.lastStorageUpdate > this.UPDATE_INTERVAL) {
+                    await this.commitBatchUpdate();
+                }
             } catch (error) {
                 logger.error('Failed to update stats:', error);
             }
         }
 
-        updateSessionStats(matchedWord, siteType) {
-            this.sessionStats.totalBlocked += 1;
-            this.sessionStats.siteStats[siteType] = (this.sessionStats.siteStats[siteType] || 0) + 1;
-            this.sessionStats.wordStats[matchedWord] = (this.sessionStats.wordStats[matchedWord] || 0) + 1;
+        async initBatchUpdate() {
+            try {
+                // Get current stats from storage
+                const result = await chrome.storage.local.get(['blockStats']);
+                this.storageBatch = result.blockStats || this.getInitialStats();
+                
+                // Ensure the batch has all required properties
+                if (!this.storageBatch.totalBlocked) this.storageBatch.totalBlocked = 0;
+                if (!this.storageBatch.siteStats) this.storageBatch.siteStats = {};
+                if (!this.storageBatch.wordStats) this.storageBatch.wordStats = {};
+                if (!this.storageBatch.timeStarted) this.storageBatch.timeStarted = Date.now();
+                
+                logger.debug('Initialized batch with current stats:', this.storageBatch);
+                this.isInitialized = true;
+            } catch (error) {
+                logger.error('Failed to initialize batch update:', error);
+                // Provide a fallback
+                this.storageBatch = this.getInitialStats();
+                this.isInitialized = true;
+            }
+        }
+        
+        async commitBatchUpdate() {
+            if (this.pendingUpdates === 0 || !this.storageBatch) return;
+            
+            try {
+                logger.debug('Committing batch update with', this.pendingUpdates, 'pending updates');
+                await chrome.storage.local.set({ blockStats: this.storageBatch });
+                
+                this.lastStorageUpdate = Date.now();
+                this.pendingUpdates = 0;
+            } catch (error) {
+                logger.error('Failed to commit batch update:', error);
+            }
+        }
 
-            chrome.storage.local.set({ sessionStats: this.sessionStats });
+        updateSessionStats(matchedWord, siteType) {
+            try {
+                // Ensure we have valid session stats
+                if (!this.sessionStats) {
+                    this.sessionStats = this.getInitialStats();
+                }
+                
+                this.sessionStats.totalBlocked = (this.sessionStats.totalBlocked || 0) + 1;
+                
+                // Ensure objects exist
+                if (!this.sessionStats.siteStats) this.sessionStats.siteStats = {};
+                if (!this.sessionStats.wordStats) this.sessionStats.wordStats = {};
+                
+                this.sessionStats.siteStats[siteType] = (this.sessionStats.siteStats[siteType] || 0) + 1;
+                this.sessionStats.wordStats[matchedWord] = (this.sessionStats.wordStats[matchedWord] || 0) + 1;
+
+                chrome.storage.local.set({ sessionStats: this.sessionStats });
+                logger.debug('Session stats updated:', this.sessionStats);
+            } catch (error) {
+                logger.error('Failed to update session stats:', error);
+            }
         }
 
         resetSessionStats() {
@@ -785,6 +789,17 @@
                 timeStarted: Date.now()
             };
         }
+        
+        // Make sure to commit any pending updates before extension unloads
+        async cleanup() {
+            try {
+                if (this.pendingUpdates > 0 && this.storageBatch) {
+                    await this.commitBatchUpdate();
+                }
+            } catch (error) {
+                logger.error('Failed during stats cleanup:', error);
+            }
+        }
     }
 
     const statsManager$1 = new StatsManager();
@@ -796,6 +811,7 @@
             this.removedCount = 0;
             this.lastCheck = 0;
             this.processedTexts = new Set(); // Track processed content
+            this.processingInProgress = false; // Add a flag to prevent concurrent processing
         }
 
         // Utility function to escape special regex characters
@@ -863,16 +879,25 @@
 
         async process() {
             try {
-                if (!stateManager.isEnabled) return;
-
+                // Skip if extension is disabled or processing is already in progress
+                if (!stateManager.isEnabled || this.processingInProgress) return;
+                
+                // Add throttling to prevent too frequent processing
                 const now = Date.now();
                 if (now - this.lastCheck < MUTATION_CHECK_INTERVAL) return;
                 this.lastCheck = now;
+                
+                // Set processing flag to prevent concurrent processing
+                this.processingInProgress = true;
 
+                // Get the site type once and cache it
                 const siteType = siteRegistry.getSiteType();
                 logger.debug('Site type:', siteType);
                 
-                if (siteType === 'base') return;
+                if (siteType === 'base') {
+                    this.processingInProgress = false;
+                    return;
+                }
 
                 siteRegistry.handleLayoutAdjustment();
 
@@ -880,6 +905,7 @@
                 const currentHandler = siteRegistry.getCurrentSiteHandler();
                 if (currentHandler.handleContentProcessing && currentHandler.handleContentProcessing(this)) {
                     // If the handler returns true, it has handled the processing, so we can return
+                    this.processingInProgress = false;
                     return;
                 }
 
@@ -903,14 +929,18 @@
                         }
                     }
                 });
+                
+                // Clear processing flag when done
+                this.processingInProgress = false;
             } catch (error) {
                 logger.error('Error in process:', error);
+                this.processingInProgress = false; // Make sure to clear the flag even if there's an error
             }
         }
     }
 
-    // Immediately verify logging level
-    logger.setLevel(LOG_LEVELS.DEBUG); // Temporarily boost logging for troubleshooting
+    // Use the config-defined log level but still log initialization
+    logger.setLevel(LOG_LEVELS.ERROR); // Set to ERROR level for production
     logger.debug('Current log level:', LOG_LEVEL);
     logger.info('Starting DeTrumper extension');
 
@@ -927,11 +957,21 @@
                 return;
             }
 
+            // Guard against multiple initializations
+            if (window.hasOwnProperty('detrumperInitialized')) {
+                logger.warn('Extension already initialized, preventing duplicate initialization');
+                return;
+            }
+            window.detrumperInitialized = true;
+
             if (initialized) return;
             initialized = true;
 
             // Create content processor first so it's available for site handlers
             contentProcessor = new ContentProcessor();
+            
+            // Initialize site registry
+            siteRegistry.initialize();
             
             // Then initialize state - this loads stored settings
             const state = await stateManager.initialize();
@@ -1018,11 +1058,18 @@
     }
 
     function cleanup() {
-        if (observer) {
-            observer.cleanup();
-        }
-        if (stateManager) {
-            stateManager.cleanup();
+        try {
+            if (observer) {
+                observer.cleanup();
+            }
+            if (stateManager) {
+                stateManager.cleanup();
+            }
+            if (statsManager$1) {
+                statsManager$1.cleanup();
+            }
+        } catch (error) {
+            logger.error('Error during cleanup:', error);
         }
     }
 
@@ -1039,53 +1086,69 @@
 
     // Message handling
     chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-        // Check if extension context is still valid
-        if (!chrome.runtime.id) {
-            window.location.reload();
-            return;
-        }
-
-        if (request.action === "updateWords") {
-            logger.info('Received updateWords message:', request);
-            stateManager.isEnabled = request.isEnabled !== undefined ? request.isEnabled : true;
-            
-            if (!stateManager.isEnabled) {
-                statsManager$1.resetSessionStats();
+        try {
+            // Check if extension context is still valid
+            if (!chrome.runtime.id) {
+                window.location.reload();
+                return;
             }
-            
-            chrome.storage.local.get(['blockedWords'], function(result) {
-                stateManager.wordsToRemove = result.blockedWords || DEFAULT_WORDS;
-                logger.info('Updated words to remove:', stateManager.wordsToRemove);
-                
-                stateManager.stateChannel.postMessage({
-                    type: STATE_TYPES.WORDS_UPDATED,
-                    payload: {
-                        words: stateManager.wordsToRemove
-                    },
-                    tabId: chrome.runtime.id
-                });
 
-                if (stateManager.isEnabled && contentProcessor) {
-                    logger.info('Triggering reprocessing after words update');
-                    contentProcessor.process();
-                    
-                    // For Old Reddit, force the site handler to process as well
-                    const currentHandler = siteRegistry.getCurrentSiteHandler();
-                    if (currentHandler.name === 'reddit' && document.querySelector('#siteTable')) {
-                        logger.info('Force processing Old Reddit posts after update');
-                        currentHandler.processPosts(contentProcessor);
-                    }
+            if (request.action === "updateWords") {
+                logger.info('Received updateWords message:', request);
+                stateManager.isEnabled = request.isEnabled !== undefined ? request.isEnabled : true;
+                
+                if (!stateManager.isEnabled) {
+                    statsManager$1.resetSessionStats();
                 }
-            });
+                
+                chrome.storage.local.get(['blockedWords'], function(result) {
+                    stateManager.wordsToRemove = result.blockedWords || DEFAULT_WORDS;
+                    logger.info('Updated words to remove:', stateManager.wordsToRemove);
+                    
+                    stateManager.stateChannel.postMessage({
+                        type: STATE_TYPES.WORDS_UPDATED,
+                        payload: {
+                            words: stateManager.wordsToRemove
+                        },
+                        tabId: chrome.runtime.id
+                    });
+
+                    if (stateManager.isEnabled && contentProcessor) {
+                        logger.info('Triggering reprocessing after words update');
+                        contentProcessor.process();
+                        
+                        // For Old Reddit, force the site handler to process as well
+                        const currentHandler = siteRegistry.getCurrentSiteHandler();
+                        if (currentHandler && currentHandler.name === 'reddit' && document.querySelector('#siteTable')) {
+                            logger.info('Force processing Old Reddit posts after update');
+                            currentHandler.processPosts(contentProcessor);
+                        }
+                    }
+                });
+            }
+        } catch (error) {
+            logger.error('Error handling message:', error);
         }
     });
 
-    // Add a context check interval
+    // MODIFIED: Using a less frequent check that doesn't force reload
+    // Just check for extension validity, but don't force page reload
+    let lastExtensionCheck = Date.now();
     setInterval(() => {
-        if (!chrome.runtime.id) {
-            cleanup();
-            window.location.reload();
+        try {
+            // Only check once every 10 seconds to reduce overhead
+            if (Date.now() - lastExtensionCheck < 10000) return;
+            lastExtensionCheck = Date.now();
+            
+            // Just check if extension is still valid
+            if (!chrome.runtime || !chrome.runtime.id) {
+                logger.warn('Extension context invalidated during check');
+                // Don't force reload, just cleanup
+                cleanup();
+            }
+        } catch (error) {
+            logger.error('Extension context check error:', error);
         }
-    }, 1000);
+    }, 10000); // Check only every 10 seconds instead of every second
 
 })();

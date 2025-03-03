@@ -7,27 +7,58 @@ import { logger } from './logger.js';
 
 class SiteRegistry {
   constructor() {
-    this.handlers = [
-      new RedditHandler(),
-      new YouTubeHandler(),
-      new LinkedInHandler()
-    ];
+    this.handlers = {
+      reddit: new RedditHandler(),
+      youtube: new YouTubeHandler(),
+      linkedin: new LinkedInHandler()
+    };
     this.fallbackHandler = new BaseSiteHandler();
     this.currentHandler = null;
+    this.currentSiteType = null;
+    this.isInitialized = false;
+  }
+
+  initialize() {
+    if (this.isInitialized) return;
+    
+    const hostname = window.location.hostname;
+    
+    // Match the hostname to determine the correct handler
+    if (hostname.includes('reddit.com')) {
+      this.currentSiteType = 'reddit';
+      this.currentHandler = this.handlers.reddit;
+    } else if (hostname.includes('youtube.com')) {
+      this.currentSiteType = 'youtube';
+      this.currentHandler = this.handlers.youtube;
+    } else if (hostname.includes('linkedin.com')) {
+      this.currentSiteType = 'linkedin';
+      this.currentHandler = this.handlers.linkedin;
+    } else {
+      this.currentSiteType = 'base';
+      this.currentHandler = this.fallbackHandler;
+    }
+    
+    logger.info(`Using ${this.currentSiteType} handler for ${hostname}`);
+    this.isInitialized = true;
   }
 
   getCurrentSiteHandler() {
-    if (!this.currentHandler) {
-      const hostname = window.location.hostname;
-      this.currentHandler = this.handlers.find(handler => handler.canHandle(hostname)) || this.fallbackHandler;
-      logger.info(`Using ${this.currentHandler.name} handler for ${hostname}`);
+    // Ensure registry is initialized
+    if (!this.isInitialized) {
+      this.initialize();
     }
+    
     return this.currentHandler;
   }
 
   getSiteType() {
-    const handler = this.getCurrentSiteHandler();
-    return handler.name;
+    // Ensure registry is initialized
+    if (!this.isInitialized) {
+      this.initialize();
+    }
+    
+    logger.debug(`Retrieved cached site type: ${this.currentSiteType}`);
+    return this.currentSiteType;
   }
 
   getElementsToCheck() {
@@ -44,11 +75,6 @@ class SiteRegistry {
 
   handleLayoutAdjustment() {
     return this.getCurrentSiteHandler().handleLayoutAdjustment();
-  }
-
-  // Register a new handler
-  registerHandler(handler) {
-    this.handlers.push(handler);
   }
 }
 

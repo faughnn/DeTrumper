@@ -9,10 +9,9 @@ export class RedditHandler extends BaseSiteHandler {
     this.processedElements = new Set();
     this.lastProcessedCount = 0;
     this.lastHeight = 0;
-    this.scrollMonitorInterval = null;
     this.domObserver = null;
-    this.processingActive = false;
-    this.pageObserver = null; // New observer specifically for page changes
+    this.lastDocumentHeight = 0;
+    this.heightCheckInterval = null;
   }
 
   canHandle(hostname) {
@@ -84,121 +83,29 @@ export class RedditHandler extends BaseSiteHandler {
     if (document.querySelector('#siteTable')) {
       logger.info('Setting up specialized handler for Old Reddit');
       
-      // Set up a direct DOM observer for the #siteTable
-      this.setupDomObserver(contentProcessor);
+      // Initialize last document height
+      this.lastDocumentHeight = document.documentElement.scrollHeight;
       
-      // Set up an aggressive polling interval as backup
-      if (!this.scrollMonitorInterval) {
-        this.scrollMonitorInterval = setInterval(() => {
+      // CHANGED: Instead of using DOM observers, check for height changes 
+      // which indicate new content was loaded (e.g. through infinite scroll)
+      this.heightCheckInterval = setInterval(() => {
+        const currentHeight = document.documentElement.scrollHeight;
+        if (currentHeight > this.lastDocumentHeight) {
+          logger.info('Page height increased, likely new content loaded');
+          this.lastDocumentHeight = currentHeight;
           this.processPosts(contentProcessor);
-        }, 100); // Very frequent checks
-      }
-      
-      // Extra measure: process on scroll events
-      window.addEventListener('scroll', () => {
-        // Debounce the scroll event to avoid excessive processing
-        if (!this.processingActive) {
-          this.processingActive = true;
-          // Use requestAnimationFrame to ensure we don't block the UI
-          requestAnimationFrame(() => {
-            this.processPosts(contentProcessor);
-            setTimeout(() => {
-              this.processingActive = false;
-            }, 50);
-          });
         }
-      }, { passive: true });
-      
-      // Set up page-change observer for infinite scroll
-      this.setupPageChangeObserver(contentProcessor);
+      }, 1000);
       
       // Force an initial processing
       setTimeout(() => {
         this.processPosts(contentProcessor);
-      }, 0);
-      
-      // Re-process periodically while viewing the page
-      setInterval(() => {
-        this.processPosts(contentProcessor);
-      }, 2000);
+      }, 100);
       
       return true; // We're handling this site
     }
     
     return false; // Let standard processing handle it
-  }
-
-  // Set up a DOM observer specifically watching for new Reddit posts
-  setupDomObserver(contentProcessor) {
-    const siteTable = document.querySelector('#siteTable');
-    
-    if (siteTable && !this.domObserver) {
-      logger.info('Setting up DOM observer for #siteTable');
-      
-      this.domObserver = new MutationObserver((mutations) => {
-        logger.debug('DOM mutation detected in #siteTable, processing posts');
-        this.processPosts(contentProcessor);
-      });
-      
-      this.domObserver.observe(siteTable, {
-        childList: true,
-        subtree: true,
-        attributes: false,
-        characterData: false
-      });
-      
-      logger.info('DOM observer set up successfully');
-    }
-  }
-
-  // NEW FUNCTION: Observe page changes for infinite scroll
-  setupPageChangeObserver(contentProcessor) {
-    if (!this.pageObserver) {
-      logger.info('Setting up page change observer for infinite scroll');
-      
-      // Observe the entire document body for new page markers or content containers
-      this.pageObserver = new MutationObserver((mutations) => {
-        // Check for relevant mutations that might indicate new content
-        for (const mutation of mutations) {
-          if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-            // Inspect added nodes for things that look like Reddit content
-            for (const node of mutation.addedNodes) {
-              if (node.nodeType === Node.ELEMENT_NODE) {
-                // Check if this is a new siteTable or contains Reddit posts
-                if (node.id === 'siteTable' || 
-                    node.classList && node.classList.contains('siteTable') ||
-                    node.querySelector && node.querySelector('.thing, .sitetable, .link')) {
-                  
-                  logger.info('New page content detected in infinite scroll');
-                  
-                  // Process immediately and then again after a delay
-                  // to catch any lazy-loaded content
-                  this.processPosts(contentProcessor);
-                  
-                  // Process again after a short delay to catch any more content
-                  setTimeout(() => {
-                    this.processPosts(contentProcessor);
-                  }, 500);
-                  
-                  // And again after a longer delay
-                  setTimeout(() => {
-                    this.processPosts(contentProcessor);
-                  }, 1500);
-                }
-              }
-            }
-          }
-        }
-      });
-      
-      // Observe the entire document body for the highest chance of catching new pages
-      this.pageObserver.observe(document.body, {
-        childList: true,
-        subtree: true
-      });
-      
-      logger.info('Page change observer set up successfully');
-    }
   }
 
   // Enhanced version that thoroughly processes all posts
@@ -221,16 +128,10 @@ export class RedditHandler extends BaseSiteHandler {
       // This is critical for infinite scroll as it adds different kinds of containers
       const allPosts = document.querySelectorAll('#siteTable > .thing, .sitetable > .thing, .linklisting > .thing, .link, .entry');
       
-      // Keep track of document height to detect changes
-      const currentHeight = document.documentElement.scrollHeight;
-      if (currentHeight !== this.lastHeight) {
-        logger.debug('Document height changed, forcing thorough reprocessing');
-        this.lastHeight = currentHeight;
-        // Clear some of the processed cache to ensure we recheck everything
-        if (this.processedElements.size > 5000) {
-          logger.debug('Clearing processed elements cache (was too large)');
-          this.processedElements.clear();
-        }
+      // Skip if no new posts since last check
+      if (allPosts.length <= this.lastProcessedCount) {
+        logger.debug('No new posts detected, skipping processing');
+        return;
       }
       
       logger.debug(`Processing ${allPosts.length} posts (${this.processedElements.size} already processed)`);
@@ -253,8 +154,10 @@ export class RedditHandler extends BaseSiteHandler {
         
         const elementId = postId || post.getAttribute('data-detrumper-id');
         
-        // Always check posts, even if we've seen them before
-        // This handles cases where content loads after the container
+        // Skip posts we've already processed
+        if (elementId && this.processedElements.has(elementId)) {
+          return;
+        }
         
         // 1. Check the title
         const titleElement = post.querySelector('a.title');
@@ -270,8 +173,8 @@ export class RedditHandler extends BaseSiteHandler {
               post.style.display = 'none';
               post.classList.add('removed-by-detrumper');
               
-              // Only log if we haven't already processed this post
-              if (elementId && !this.processedElements.has(elementId)) {
+              // Mark as processed
+              if (elementId) {
                 this.processedElements.add(elementId);
                 contentProcessor.logRemoval(post, this.name, titleText, word);
               }
@@ -294,8 +197,8 @@ export class RedditHandler extends BaseSiteHandler {
               post.style.display = 'none';
               post.classList.add('removed-by-detrumper');
               
-              // Only log if we haven't already processed this post
-              if (elementId && !this.processedElements.has(elementId)) {
+              // Mark as processed
+              if (elementId) {
                 this.processedElements.add(elementId);
                 contentProcessor.logRemoval(post, this.name, contentText.substring(0, 100), word);
               }

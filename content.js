@@ -6,8 +6,8 @@ import { siteRegistry } from './siteRegistry.js';
 import { logger } from './logger.js';
 import { statsManager } from './statsManager.js';
 
-// Immediately verify logging level
-logger.setLevel(LOG_LEVELS.DEBUG); // Temporarily boost logging for troubleshooting
+// Use the config-defined log level but still log initialization
+logger.setLevel(LOG_LEVELS.ERROR); // Set to ERROR level for production
 logger.debug('Current log level:', LOG_LEVEL);
 logger.info('Starting DeTrumper extension');
 
@@ -24,11 +24,21 @@ async function startExtension() {
             return;
         }
 
+        // Guard against multiple initializations
+        if (window.hasOwnProperty('detrumperInitialized')) {
+            logger.warn('Extension already initialized, preventing duplicate initialization');
+            return;
+        }
+        window.detrumperInitialized = true;
+
         if (initialized) return;
         initialized = true;
 
         // Create content processor first so it's available for site handlers
         contentProcessor = new ContentProcessor();
+        
+        // Initialize site registry
+        siteRegistry.initialize();
         
         // Then initialize state - this loads stored settings
         const state = await stateManager.initialize();
@@ -115,11 +125,18 @@ function handleYouTubeInit(contentProcessor) {
 }
 
 function cleanup() {
-    if (observer) {
-        observer.cleanup();
-    }
-    if (stateManager) {
-        stateManager.cleanup();
+    try {
+        if (observer) {
+            observer.cleanup();
+        }
+        if (stateManager) {
+            stateManager.cleanup();
+        }
+        if (statsManager) {
+            statsManager.cleanup();
+        }
+    } catch (error) {
+        logger.error('Error during cleanup:', error);
     }
 }
 
@@ -136,51 +153,67 @@ window.addEventListener('unload', cleanup);
 
 // Message handling
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-    // Check if extension context is still valid
-    if (!chrome.runtime.id) {
-        window.location.reload();
-        return;
-    }
-
-    if (request.action === "updateWords") {
-        logger.info('Received updateWords message:', request);
-        stateManager.isEnabled = request.isEnabled !== undefined ? request.isEnabled : true;
-        
-        if (!stateManager.isEnabled) {
-            statsManager.resetSessionStats();
+    try {
+        // Check if extension context is still valid
+        if (!chrome.runtime.id) {
+            window.location.reload();
+            return;
         }
-        
-        chrome.storage.local.get(['blockedWords'], function(result) {
-            stateManager.wordsToRemove = result.blockedWords || DEFAULT_WORDS;
-            logger.info('Updated words to remove:', stateManager.wordsToRemove);
-            
-            stateManager.stateChannel.postMessage({
-                type: STATE_TYPES.WORDS_UPDATED,
-                payload: {
-                    words: stateManager.wordsToRemove
-                },
-                tabId: chrome.runtime.id
-            });
 
-            if (stateManager.isEnabled && contentProcessor) {
-                logger.info('Triggering reprocessing after words update');
-                contentProcessor.process();
-                
-                // For Old Reddit, force the site handler to process as well
-                const currentHandler = siteRegistry.getCurrentSiteHandler();
-                if (currentHandler.name === 'reddit' && document.querySelector('#siteTable')) {
-                    logger.info('Force processing Old Reddit posts after update');
-                    currentHandler.processPosts(contentProcessor);
-                }
+        if (request.action === "updateWords") {
+            logger.info('Received updateWords message:', request);
+            stateManager.isEnabled = request.isEnabled !== undefined ? request.isEnabled : true;
+            
+            if (!stateManager.isEnabled) {
+                statsManager.resetSessionStats();
             }
-        });
+            
+            chrome.storage.local.get(['blockedWords'], function(result) {
+                stateManager.wordsToRemove = result.blockedWords || DEFAULT_WORDS;
+                logger.info('Updated words to remove:', stateManager.wordsToRemove);
+                
+                stateManager.stateChannel.postMessage({
+                    type: STATE_TYPES.WORDS_UPDATED,
+                    payload: {
+                        words: stateManager.wordsToRemove
+                    },
+                    tabId: chrome.runtime.id
+                });
+
+                if (stateManager.isEnabled && contentProcessor) {
+                    logger.info('Triggering reprocessing after words update');
+                    contentProcessor.process();
+                    
+                    // For Old Reddit, force the site handler to process as well
+                    const currentHandler = siteRegistry.getCurrentSiteHandler();
+                    if (currentHandler && currentHandler.name === 'reddit' && document.querySelector('#siteTable')) {
+                        logger.info('Force processing Old Reddit posts after update');
+                        currentHandler.processPosts(contentProcessor);
+                    }
+                }
+            });
+        }
+    } catch (error) {
+        logger.error('Error handling message:', error);
     }
 });
 
-// Add a context check interval
+// MODIFIED: Using a less frequent check that doesn't force reload
+// Just check for extension validity, but don't force page reload
+let lastExtensionCheck = Date.now();
 setInterval(() => {
-    if (!chrome.runtime.id) {
-        cleanup();
-        window.location.reload();
+    try {
+        // Only check once every 10 seconds to reduce overhead
+        if (Date.now() - lastExtensionCheck < 10000) return;
+        lastExtensionCheck = Date.now();
+        
+        // Just check if extension is still valid
+        if (!chrome.runtime || !chrome.runtime.id) {
+            logger.warn('Extension context invalidated during check');
+            // Don't force reload, just cleanup
+            cleanup();
+        }
+    } catch (error) {
+        logger.error('Extension context check error:', error);
     }
-}, 1000);
+}, 10000); // Check only every 10 seconds instead of every second

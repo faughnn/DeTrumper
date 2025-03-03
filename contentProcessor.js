@@ -10,6 +10,7 @@ export class ContentProcessor {
         this.removedCount = 0;
         this.lastCheck = 0;
         this.processedTexts = new Set(); // Track processed content
+        this.processingInProgress = false; // Add a flag to prevent concurrent processing
     }
 
     // Utility function to escape special regex characters
@@ -77,16 +78,25 @@ export class ContentProcessor {
 
     async process() {
         try {
-            if (!stateManager.isEnabled) return;
-
+            // Skip if extension is disabled or processing is already in progress
+            if (!stateManager.isEnabled || this.processingInProgress) return;
+            
+            // Add throttling to prevent too frequent processing
             const now = Date.now();
             if (now - this.lastCheck < MUTATION_CHECK_INTERVAL) return;
             this.lastCheck = now;
+            
+            // Set processing flag to prevent concurrent processing
+            this.processingInProgress = true;
 
+            // Get the site type once and cache it
             const siteType = siteRegistry.getSiteType();
             logger.debug('Site type:', siteType);
             
-            if (siteType === 'base') return;
+            if (siteType === 'base') {
+                this.processingInProgress = false;
+                return;
+            }
 
             siteRegistry.handleLayoutAdjustment();
 
@@ -94,6 +104,7 @@ export class ContentProcessor {
             const currentHandler = siteRegistry.getCurrentSiteHandler();
             if (currentHandler.handleContentProcessing && currentHandler.handleContentProcessing(this)) {
                 // If the handler returns true, it has handled the processing, so we can return
+                this.processingInProgress = false;
                 return;
             }
 
@@ -117,8 +128,12 @@ export class ContentProcessor {
                     }
                 }
             });
+            
+            // Clear processing flag when done
+            this.processingInProgress = false;
         } catch (error) {
             logger.error('Error in process:', error);
+            this.processingInProgress = false; // Make sure to clear the flag even if there's an error
         }
     }
 }
