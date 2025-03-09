@@ -11,6 +11,8 @@ export class ContentProcessor {
         this.lastCheck = 0;
         this.processedTexts = new Set(); // Track processed content
         this.processingInProgress = false; // Add a flag to prevent concurrent processing
+        // Store statsManager reference to prevent renaming issues
+        this.statsManager = statsManager;
     }
 
     // Utility function to escape special regex characters
@@ -72,7 +74,8 @@ export class ContentProcessor {
 
         if (matchedWord) {
             logger.debug('Calling updateStats with:', matchedWord, siteType);
-            statsManager.updateStats(matchedWord, siteType);
+            // Use this.statsManager instead of statsManager directly
+            this.statsManager.updateStats(matchedWord, siteType);
         }
     }
 

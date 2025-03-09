@@ -675,6 +675,12 @@
             logger.debug('Updating stats for:', matchedWord, 'on site:', siteType);
             
             try {
+                // First check if extension context is still valid
+                if (!chrome.runtime || !chrome.runtime.id) {
+                    logger.warn('Extension context invalid, skipping stats update');
+                    return;
+                }
+                
                 const state = await sharedState.getState();
                 if (!state.isEnabled) {
                     logger.info('Stats update skipped - extension disabled');
@@ -719,6 +725,12 @@
 
         async initBatchUpdate() {
             try {
+                // Check if extension context is still valid
+                if (!chrome.runtime || !chrome.runtime.id) {
+                    logger.warn('Extension context invalid, skipping batch initialization');
+                    return;
+                }
+                
                 // Get current stats from storage
                 const result = await chrome.storage.local.get(['blockStats']);
                 this.storageBatch = result.blockStats || this.getInitialStats();
@@ -743,6 +755,12 @@
             if (this.pendingUpdates === 0 || !this.storageBatch) return;
             
             try {
+                // Check if extension context is still valid
+                if (!chrome.runtime || !chrome.runtime.id) {
+                    logger.warn('Extension context invalid, cannot commit batch update');
+                    return;
+                }
+                
                 logger.debug('Committing batch update with', this.pendingUpdates, 'pending updates');
                 await chrome.storage.local.set({ blockStats: this.storageBatch });
                 
@@ -755,6 +773,12 @@
 
         updateSessionStats(matchedWord, siteType) {
             try {
+                // Check if extension context is still valid
+                if (!chrome.runtime || !chrome.runtime.id) {
+                    logger.warn('Extension context invalid, skipping session stats update');
+                    return;
+                }
+                
                 // Ensure we have valid session stats
                 if (!this.sessionStats) {
                     this.sessionStats = this.getInitialStats();
@@ -777,8 +801,18 @@
         }
 
         resetSessionStats() {
-            this.sessionStats = this.getInitialStats();
-            chrome.storage.local.set({ sessionStats: this.sessionStats });
+            try {
+                // Check if extension context is still valid
+                if (!chrome.runtime || !chrome.runtime.id) {
+                    logger.warn('Extension context invalid, cannot reset session stats');
+                    return;
+                }
+                
+                this.sessionStats = this.getInitialStats();
+                chrome.storage.local.set({ sessionStats: this.sessionStats });
+            } catch (error) {
+                logger.error('Failed to reset session stats:', error);
+            }
         }
 
         getInitialStats() {
@@ -790,16 +824,23 @@
             };
         }
         
-        // Make sure to commit any pending updates before extension unloads
-        async cleanup() {
-            try {
-                if (this.pendingUpdates > 0 && this.storageBatch) {
-                    await this.commitBatchUpdate();
-                }
-            } catch (error) {
-                logger.error('Failed during stats cleanup:', error);
-            }
-        }
+    	// Make sure to commit any pending updates before extension unloads
+    	async cleanup() {
+    		try {
+    			// Check if extension context is still valid first thing in the method
+    			if (!chrome.runtime || !chrome.runtime.id) {
+    				console.warn('Extension context already invalid during stats cleanup, skipping batch commit');
+    				return; // Exit early without trying to commit
+    			}
+    			
+    			if (this.pendingUpdates > 0 && this.storageBatch) {
+    				// Don't need another check here since we checked at the beginning
+    				await this.commitBatchUpdate();
+    			}
+    		} catch (error) {
+    			console.error('Failed during stats cleanup:', error);
+    		}
+    	}
     }
 
     const statsManager$1 = new StatsManager();
@@ -812,6 +853,8 @@
             this.lastCheck = 0;
             this.processedTexts = new Set(); // Track processed content
             this.processingInProgress = false; // Add a flag to prevent concurrent processing
+            // Store statsManager reference to prevent renaming issues
+            this.statsManager = statsManager$1;
         }
 
         // Utility function to escape special regex characters
@@ -873,7 +916,8 @@
 
             if (matchedWord) {
                 logger.debug('Calling updateStats with:', matchedWord, siteType);
-                statsManager$1.updateStats(matchedWord, siteType);
+                // Use this.statsManager instead of statsManager directly
+                this.statsManager.updateStats(matchedWord, siteType);
             }
         }
 
@@ -947,19 +991,20 @@
     let initialized = false;
     let observer = null;
     let contentProcessor = null;
+    let extensionCheckInterval = null;
 
     async function startExtension() {
         try {
             // Check if chrome.runtime is still available
             if (!chrome.runtime || !chrome.runtime.id) {
-                logger.warn('Extension context invalidated, reloading page...');
+                logger.info('Extension context invalidated, reloading page...');
                 window.location.reload();
                 return;
             }
 
             // Guard against multiple initializations
             if (window.hasOwnProperty('detrumperInitialized')) {
-                logger.warn('Extension already initialized, preventing duplicate initialization');
+                logger.info('Extension already initialized, preventing duplicate initialization');
                 return;
             }
             window.detrumperInitialized = true;
@@ -1058,18 +1103,63 @@
     }
 
     function cleanup() {
+        // Flag to track if we're already cleaning up to prevent re-entrancy issues
+        if (window.detrumperCleaningUp) {
+            console.log('Cleanup already in progress, skipping');
+            return;
+        }
+        window.detrumperCleaningUp = true;
+
         try {
+            // Clear any pending intervals that might call cleanup again
+            if (extensionCheckInterval) {
+                clearInterval(extensionCheckInterval);
+                extensionCheckInterval = null;
+            }
+            
+            // Clear height check interval from Reddit handler
+            if (siteRegistry && 
+                siteRegistry.currentHandler && 
+                siteRegistry.currentHandler.name === 'reddit' && 
+                siteRegistry.currentHandler.heightCheckInterval) {
+                clearInterval(siteRegistry.currentHandler.heightCheckInterval);
+            }
+
+            // We should still try to cleanup what we can, even if the context is invalid
             if (observer) {
-                observer.cleanup();
+                try {
+                    observer.cleanup();
+                } catch (e) {
+                    console.log('Error cleaning up observer:', e);
+                }
             }
+            
             if (stateManager) {
-                stateManager.cleanup();
+                try {
+                    stateManager.cleanup();
+                } catch (e) {
+                    console.log('Error cleaning up state manager:', e);
+                }
             }
+            
             if (statsManager$1) {
-                statsManager$1.cleanup();
+                try {
+                    statsManager$1.cleanup();
+                } catch (e) {
+                    console.log('Error cleaning up stats manager:', e);
+                }
+            }
+            
+            // Remove our event listener to prevent re-entry from another event
+            try {
+                window.removeEventListener('unload', cleanupHandler);
+            } catch (e) {
+                // Ignore errors when removing event listener
             }
         } catch (error) {
-            logger.error('Error during cleanup:', error);
+            console.log('Error during cleanup:', error);
+        } finally {
+            window.detrumperCleaningUp = false;
         }
     }
 
@@ -1081,73 +1171,115 @@
         }
     });
 
+    // Create a named function for the event listener so we can remove it
+    function cleanupHandler() {
+        cleanup();
+    }
+
     // Cleanup
-    window.addEventListener('unload', cleanup);
+    window.addEventListener('unload', cleanupHandler);
 
     // Message handling
     chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
         try {
             // Check if extension context is still valid
-            if (!chrome.runtime.id) {
-                window.location.reload();
-                return;
+            if (!chrome.runtime || !chrome.runtime.id) {
+                return; // Silently exit if context is invalid
             }
 
             if (request.action === "updateWords") {
                 logger.info('Received updateWords message:', request);
                 stateManager.isEnabled = request.isEnabled !== undefined ? request.isEnabled : true;
                 
-                if (!stateManager.isEnabled) {
-                    statsManager$1.resetSessionStats();
+                if (!stateManager.isEnabled && statsManager$1) {
+                    try {
+                        statsManager$1.resetSessionStats();
+                    } catch (e) {
+                        logger.info('Error resetting session stats:', e);
+                    }
                 }
                 
                 chrome.storage.local.get(['blockedWords'], function(result) {
-                    stateManager.wordsToRemove = result.blockedWords || DEFAULT_WORDS;
-                    logger.info('Updated words to remove:', stateManager.wordsToRemove);
-                    
-                    stateManager.stateChannel.postMessage({
-                        type: STATE_TYPES.WORDS_UPDATED,
-                        payload: {
-                            words: stateManager.wordsToRemove
-                        },
-                        tabId: chrome.runtime.id
-                    });
-
-                    if (stateManager.isEnabled && contentProcessor) {
-                        logger.info('Triggering reprocessing after words update');
-                        contentProcessor.process();
-                        
-                        // For Old Reddit, force the site handler to process as well
-                        const currentHandler = siteRegistry.getCurrentSiteHandler();
-                        if (currentHandler && currentHandler.name === 'reddit' && document.querySelector('#siteTable')) {
-                            logger.info('Force processing Old Reddit posts after update');
-                            currentHandler.processPosts(contentProcessor);
+                    try {
+                        // Check context again within the callback
+                        if (!chrome.runtime || !chrome.runtime.id) {
+                            return;
                         }
+                        
+                        stateManager.wordsToRemove = result.blockedWords || DEFAULT_WORDS;
+                        logger.info('Updated words to remove:', stateManager.wordsToRemove);
+                        
+                        // Safely post message
+                        try {
+                            stateManager.stateChannel.postMessage({
+                                type: STATE_TYPES.WORDS_UPDATED,
+                                payload: {
+                                    words: stateManager.wordsToRemove
+                                },
+                                tabId: chrome.runtime.id
+                            });
+                        } catch (e) {
+                            logger.info('Error posting state update message:', e);
+                        }
+
+                        // Safely trigger content processing
+                        if (stateManager.isEnabled && contentProcessor) {
+                            try {
+                                logger.info('Triggering reprocessing after words update');
+                                contentProcessor.process();
+                                
+                                // For Old Reddit, force the site handler to process as well
+                                const currentHandler = siteRegistry.getCurrentSiteHandler();
+                                if (currentHandler && 
+                                    currentHandler.name === 'reddit' && 
+                                    document.querySelector('#siteTable')) {
+                                    logger.info('Force processing Old Reddit posts after update');
+                                    currentHandler.processPosts(contentProcessor);
+                                }
+                            } catch (e) {
+                                logger.info('Error processing content after words update:', e);
+                            }
+                        }
+                    } catch (e) {
+                        logger.info('Error in storage callback:', e);
                     }
                 });
             }
         } catch (error) {
-            logger.error('Error handling message:', error);
+            logger.info('Error handling message:', error);
         }
+        // Return false unless we need to use sendResponse asynchronously
+        return false;
     });
 
     // MODIFIED: Using a less frequent check that doesn't force reload
     // Just check for extension validity, but don't force page reload
     let lastExtensionCheck = Date.now();
-    setInterval(() => {
+    extensionCheckInterval = setInterval(() => {
         try {
             // Only check once every 10 seconds to reduce overhead
             if (Date.now() - lastExtensionCheck < 10000) return;
             lastExtensionCheck = Date.now();
             
-            // Just check if extension is still valid
+            // Just check if extension is still valid - use console.log instead of console.warn
             if (!chrome.runtime || !chrome.runtime.id) {
-                logger.warn('Extension context invalidated during check');
-                // Don't force reload, just cleanup
-                cleanup();
+                console.log('Extension context status: invalidated during routine check');
+                
+                // Instead of calling cleanup(), do minimal targeted cleanup
+                if (observer && observer.observer) {
+                    try {
+                        observer.observer.disconnect();
+                    } catch (e) {
+                        // Silently fail disconnection
+                    }
+                }
+                
+                // Clear the interval itself
+                clearInterval(extensionCheckInterval);
+                extensionCheckInterval = null;
             }
         } catch (error) {
-            logger.error('Extension context check error:', error);
+            console.log('Extension context check encountered an issue:', error.message || 'unknown error');
         }
     }, 10000); // Check only every 10 seconds instead of every second
 

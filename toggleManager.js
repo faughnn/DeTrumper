@@ -30,7 +30,8 @@ class ToggleManager {
     async notifyTabs() {
         const tabs = await chrome.tabs.query({});
         tabs.forEach(tab => {
-            if (tab.url.includes('reddit.com') || tab.url.includes('youtube.com')) {
+            // Check if tab.url exists before trying to use includes()
+            if (tab.url && (tab.url.includes('reddit.com') || tab.url.includes('youtube.com'))) {
                 chrome.tabs.sendMessage(tab.id, {
                     action: "updateWords",
                     isEnabled: this.isEnabled

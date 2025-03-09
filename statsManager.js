@@ -16,6 +16,12 @@ class StatsManager {
         logger.debug('Updating stats for:', matchedWord, 'on site:', siteType);
         
         try {
+            // First check if extension context is still valid
+            if (!chrome.runtime || !chrome.runtime.id) {
+                logger.warn('Extension context invalid, skipping stats update');
+                return;
+            }
+            
             const state = await sharedState.getState();
             if (!state.isEnabled) {
                 logger.info('Stats update skipped - extension disabled');
@@ -60,6 +66,12 @@ class StatsManager {
 
     async initBatchUpdate() {
         try {
+            // Check if extension context is still valid
+            if (!chrome.runtime || !chrome.runtime.id) {
+                logger.warn('Extension context invalid, skipping batch initialization');
+                return;
+            }
+            
             // Get current stats from storage
             const result = await chrome.storage.local.get(['blockStats']);
             this.storageBatch = result.blockStats || this.getInitialStats();
@@ -84,6 +96,12 @@ class StatsManager {
         if (this.pendingUpdates === 0 || !this.storageBatch) return;
         
         try {
+            // Check if extension context is still valid
+            if (!chrome.runtime || !chrome.runtime.id) {
+                logger.warn('Extension context invalid, cannot commit batch update');
+                return;
+            }
+            
             logger.debug('Committing batch update with', this.pendingUpdates, 'pending updates');
             await chrome.storage.local.set({ blockStats: this.storageBatch });
             
@@ -96,6 +114,12 @@ class StatsManager {
 
     updateSessionStats(matchedWord, siteType) {
         try {
+            // Check if extension context is still valid
+            if (!chrome.runtime || !chrome.runtime.id) {
+                logger.warn('Extension context invalid, skipping session stats update');
+                return;
+            }
+            
             // Ensure we have valid session stats
             if (!this.sessionStats) {
                 this.sessionStats = this.getInitialStats();
@@ -118,8 +142,18 @@ class StatsManager {
     }
 
     resetSessionStats() {
-        this.sessionStats = this.getInitialStats();
-        chrome.storage.local.set({ sessionStats: this.sessionStats });
+        try {
+            // Check if extension context is still valid
+            if (!chrome.runtime || !chrome.runtime.id) {
+                logger.warn('Extension context invalid, cannot reset session stats');
+                return;
+            }
+            
+            this.sessionStats = this.getInitialStats();
+            chrome.storage.local.set({ sessionStats: this.sessionStats });
+        } catch (error) {
+            logger.error('Failed to reset session stats:', error);
+        }
     }
 
     getInitialStats() {
@@ -131,16 +165,23 @@ class StatsManager {
         };
     }
     
-    // Make sure to commit any pending updates before extension unloads
-    async cleanup() {
-        try {
-            if (this.pendingUpdates > 0 && this.storageBatch) {
-                await this.commitBatchUpdate();
-            }
-        } catch (error) {
-            logger.error('Failed during stats cleanup:', error);
-        }
-    }
+	// Make sure to commit any pending updates before extension unloads
+	async cleanup() {
+		try {
+			// Check if extension context is still valid first thing in the method
+			if (!chrome.runtime || !chrome.runtime.id) {
+				console.warn('Extension context already invalid during stats cleanup, skipping batch commit');
+				return; // Exit early without trying to commit
+			}
+			
+			if (this.pendingUpdates > 0 && this.storageBatch) {
+				// Don't need another check here since we checked at the beginning
+				await this.commitBatchUpdate();
+			}
+		} catch (error) {
+			console.error('Failed during stats cleanup:', error);
+		}
+	}
 }
 
 export const statsManager = new StatsManager();
